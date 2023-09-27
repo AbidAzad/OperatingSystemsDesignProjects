@@ -1,7 +1,7 @@
 /*
 * Add NetID and names of all project partners
 * Abid Azad - aa2177
-*
+* Ghautham gs878
 */
 #include <stdio.h>
 #include <string.h>
