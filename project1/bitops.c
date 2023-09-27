@@ -1,5 +1,6 @@
 /*
 * Add NetID and names of all project partners
+* Abid Azad - aa2177
 *
 */
 #include <stdio.h>
@@ -19,7 +20,15 @@ static unsigned int myaddress = 4026544704;   // Binary  would be 11110000000000
 static unsigned int get_top_bits(unsigned int value,  int num_bits)
 {
 	//Implement your code here
-	
+    int binaryCounter = 1;
+    int sum = 0;
+    for(int i = 0; i < num_bits; i++){
+        if( (value & (1<<(sizeof(unsigned int) * 8 -1)))){
+            sum += binaryCounter;
+        }
+        binaryCounter*=2;
+    }
+	return sum;
 }
 
 
@@ -30,7 +39,7 @@ static unsigned int get_top_bits(unsigned int value,  int num_bits)
 static void set_bit_at_index(char *bitmap, int index)
 {
     //Implement your code here	
-
+    bitmap[index] = 1;
     return;
 }
 
@@ -43,7 +52,7 @@ static int get_bit_at_index(char *bitmap, int index)
 {
     //Get to the location in the character bitmap array
     //Implement your code here
-    
+    return bitmap[index];
 }
 
 
