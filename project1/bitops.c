@@ -39,7 +39,8 @@ static unsigned int get_top_bits(unsigned int value,  int num_bits)
 static void set_bit_at_index(char *bitmap, int index)
 {
     //Implement your code here	
-    bitmap[index] = 1;
+
+    bitmap[index >> 3] |= (1 << (index & 7));
     return;
 }
 
@@ -52,7 +53,7 @@ static int get_bit_at_index(char *bitmap, int index)
 {
     //Get to the location in the character bitmap array
     //Implement your code here
-    return bitmap[index];
+    return (bitmap[index >> 3] & (1 << (index & 7) ) )!= 0;
 }
 
 
