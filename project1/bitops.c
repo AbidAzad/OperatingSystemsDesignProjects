@@ -12,7 +12,7 @@
 #define SET_BIT_INDEX 17 //bit index to set 
 #define GET_BIT_INDEX 17 //bit index to read
 
-static unsigned int myaddress = 4026544704;   // Binary  would be 11110000000000000011001001000000
+static unsigned int myaddress = 1726544704;   // Binary  would be 11110000000000000011001001000000
 
 /* 
  * Function 1: EXTRACTING OUTER (TOP-ORDER) BITS
@@ -22,8 +22,8 @@ static unsigned int get_top_bits(unsigned int value,  int num_bits)
 	//Implement your code here
     int binaryCounter = 1;
     int sum = 0;
-    for(int i = 0; i < num_bits; i++){
-        if( (value & (1<<(sizeof(unsigned int) * 8 -1)))){
+    for(int i = num_bits-1; i >= 0; i--){
+        if( (value & (1<< ((sizeof(unsigned int) * 8 -1-i))))){
             sum += binaryCounter;
         }
         binaryCounter*=2;
