@@ -1,4 +1,5 @@
 /*
+* This code was compiled in Ilab Machine 1.
 * Add NetID and names of all project partners
 * Abid Azad - aa2177
 * Ghautham gs878
@@ -12,7 +13,7 @@
 #define SET_BIT_INDEX 17 //bit index to set 
 #define GET_BIT_INDEX 17 //bit index to read
 
-static unsigned int myaddress = 1726544704;   // Binary  would be 11110000000000000011001001000000
+static unsigned int myaddress = 4026544704;   // Binary  would be 11110000000000000011001001000000
 
 /* 
  * Function 1: EXTRACTING OUTER (TOP-ORDER) BITS
