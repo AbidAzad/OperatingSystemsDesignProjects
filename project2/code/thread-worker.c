@@ -15,15 +15,30 @@ double avg_resp_time=0;
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
-
+int threadCounter = 2; // Global var to assign thread ids
+Queue threadQueue;
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
-
+		
+		if(isQueueInitialized(&threadQueue))
+			initializeQueue(&threadQueue);
        // - create Thread Control Block (TCB)
+	   tcb* newThread = (tcb*) malloc(sizeof(tcb));
        // - create and initialize the context of this worker thread
+	   newThread->TID = threadCounter;
+	   threadCounter++;
+	   newThread->status = READY;
+	   if (getcontext(&newThread->context) == -1) {
+        perror("getcontext");
+        exit(EXIT_FAILURE);
+   	   }
+	   
        // - allocate space of stack for this thread to run
+	   newThread->context.uc_stack.ss_sp = newThread->stack;
+       newThread->context.uc_stack.ss_size = STACK_SIZE;
+       newThread->context.uc_stack.ss_flags = 0;
        // after everything is set, push this thread into run queue and 
        // - make it ready for the execution.
 

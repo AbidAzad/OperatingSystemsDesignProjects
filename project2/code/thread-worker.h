@@ -18,15 +18,29 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ucontext.h>
+#include <signal.h>
+#include <stdatomic.h>
+
+#define STACK_SIZE 8192 //SIGSTKSZ = 8192
 
 typedef uint worker_t;
+#define READY 0
+#define SCHEDULED 1
+#define BLOCKED_MUTEX 2
+#define BLOCKED_JOIN 3
+#define FINISHED 4
 
 typedef struct TCB {
 	/* add important states in a thread control block */
 	// thread Id
+	uint TID;
 	// thread status
+	int status;
 	// thread context
+	ucontext_t context;
 	// thread stack
+	char stack[STACK_SIZE];
 	// thread priority
 	// And more ...
 
@@ -38,6 +52,10 @@ typedef struct worker_mutex_t {
 	/* add something here */
 
 	// YOUR CODE HERE
+	atomic_flag flag;
+	Queue threadQueue;
+	uint owner;
+
 } worker_mutex_t;
 
 /* define your data structures here: */
@@ -45,6 +63,84 @@ typedef struct worker_mutex_t {
 
 // YOUR CODE HERE
 
+///////////////MAKING A QUEUE DATA STRUCTURE FOR TCB//////////////////////////////////////
+typedef struct Node{
+	tcb thread;
+	struct Node* next;
+}Node;
+
+typedef struct Queue{
+	Node* front;
+	Node* rear;
+}Queue;
+
+void initializeQueue(Queue* queue) {
+    queue->front = queue->rear = NULL;
+}
+
+int isQueueInitialized(const Queue* queue) {
+    return (queue->front == NULL && queue->rear == NULL);
+}
+
+int isQueueEmpty(Queue* queue) {
+    return queue->front == NULL;
+}
+
+void enqueue(Queue* queue, tcb thread) {
+    Node* newNode = (Node*)malloc(sizeof(Node));
+    if (newNode == NULL) {
+        fprintf(stderr, "Memory allocation error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    newNode->thread = thread;
+    newNode->next = NULL;
+
+    if (isQueueEmpty(queue)) {
+        queue->front = queue->rear = newNode;
+    } else {
+        queue->rear->next = newNode;
+        queue->rear = newNode;
+    }
+}
+
+tcb dequeue(Queue* queue) {
+    if (isQueueEmpty(queue)) {
+        fprintf(stderr, "Queue is empty\n");
+        exit(EXIT_FAILURE);
+    }
+
+    Node* temp = queue->front;
+    tcb thread = temp->thread;
+
+    queue->front = temp->next;
+    free(temp);
+
+    if (queue->front == NULL) {
+        queue->rear = NULL; 
+    }
+
+    return thread;
+}
+
+tcb peek(Queue* queue) {
+    if (isQueueEmpty(queue)) {
+        fprintf(stderr, "Queue is empty\n");
+        exit(EXIT_FAILURE);
+    }
+
+    return queue->front->thread;
+}
+
+void printQueue(Queue* queue) {
+    Node* current = queue->front;
+    while (current != NULL) {
+        // Print information about the tcb (e.g., TID, status)
+        printf("TID: %u, Status: %d\n", current->thread.TID, current->thread.status);
+        current = current->next;
+    }
+}
+///////////////////////////////////////////////////
 
 /* Function Declarations: */
 
