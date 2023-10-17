@@ -1,6 +1,15 @@
 {
     "files.associations": {
         "types.h": "c",
-        "ucontext.h": "c"
+        "ucontext.h": "c",
+        "array": "c",
+        "*.tcc": "c",
+        "memory": "c",
+        "istream": "c",
+        "functional": "c",
+        "tuple": "c",
+        "utility": "c",
+        "variant": "c",
+        "time.h": "c"
     }
 }
