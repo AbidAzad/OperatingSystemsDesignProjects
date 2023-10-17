@@ -10,6 +10,7 @@
         "tuple": "c",
         "utility": "c",
         "variant": "c",
-        "time.h": "c"
+        "time.h": "c",
+        "vector": "c"
     }
 }

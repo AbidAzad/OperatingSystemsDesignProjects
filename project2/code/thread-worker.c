@@ -14,6 +14,7 @@ double avg_resp_time=0;
 
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
+
 // YOUR CODE HERE
 #define SCHEDULER_THREAD 0
 #define MAIN_THREAD 1
@@ -22,7 +23,6 @@ double avg_resp_time=0;
 int threadCounter = 2; // Global var to assign thread ids
 Queue threadQueue[QUEUE_NUM];
 int started = 1;
-
 HashMap *map = NULL;
 int isSchedCreated = 0;
 tcb* get_current_tcb();
@@ -33,33 +33,6 @@ int currentThreadQNum=0;
 int isDebugging = 0;
 enum sched_options {_PSJF, _MLFQ};
 int SCHED_TYPE = _MLFQ;
-static void schedule();
-static void sched_mlfq();
-static void sched_psjf();
-void createContext(ucontext_t* threadContext);
-void createSchedulerContext();
-void createMainContext();
-void setupTimer();
-int isThreadInactive(int queueNum);
-int isLastQueue(int queueNum);
-void initializeQueue(Queue* q);
-int isQueueEmpty(Queue* queue);
-int size(Queue* q);
-tcb* get(Queue* q, int i);
-void enqueue(Queue* q, tcb* x);
-tcb* dequeue(Queue* q);
-tcb* peek(Queue* q);
-tcb* getTail(Queue* q);
-void clear(Queue* q);
-int hash(struct HashMap *map, int key);
-void initHashMap(struct HashMap *map);
-void put(struct HashMap *map, int key, tcb* value);
-tcb* removeFromHashMap(HashMap *map, int key);
-tcb* getFromHashMap(struct HashMap *map, int key);
-int hashMapSize(struct HashMap *map);
-int isEmpty(struct HashMap *map);
-void worker_start(tcb *currTCB, void (*function)(void *), void *arg);
-int qSize(Queue* q);
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
@@ -77,6 +50,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 			map = (HashMap *)malloc(sizeof(HashMap));
 			initHashMap(map);
 		}
+        *thread = threadCounter;
        // - create Thread Control Block (TCB)
 	   tcb* newThread = (tcb*) malloc(sizeof(tcb));
        // - create and initialize the context of this worker thread
@@ -222,13 +196,13 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
     }
 
     if(isQueueEmpty(&(mutex->threadQueue))) {
-        for (int i = 0; i < qSize(&(mutex->threadQueue)); i++) {
-            tcb* x = get(&(mutex->threadQueue), i);
+        for (int i = 0; i < queueSize(&(mutex->threadQueue)); i++) {
+            tcb* x = queueGet(&(mutex->threadQueue), i);
             getFromHashMap(map, x->TID)->status = READY;
             enqueue(&threadQueue[0], getFromHashMap(map, x->TID));
         }
 
-        clear(&(mutex->threadQueue));
+        queueClear(&(mutex->threadQueue));
     }
     atomic_flag_clear_explicit(&mutex->flag, memory_order_seq_cst);
 
@@ -242,7 +216,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex) {
 	// - de-allocate dynamic memory created in worker_mutex_init
-    clear(&(mutex->threadQueue));
+    queueClear(&(mutex->threadQueue));
 	return 0;
 };
 
@@ -411,92 +385,92 @@ int isThreadInactive(int queueNum) {
     return peek(&threadQueue[queueNum])->status == FINISHED || peek(&threadQueue[queueNum])->status == BLOCKED_MUTEX || peek(&threadQueue[queueNum])->status == BLOCKED_JOIN;
 }
 
-void initializeQueue(Queue* q) {
-    q->head = q->tail = NULL;
-    q->_size = 0;
+void initializeQueue(Queue* startingQueue) {
+    startingQueue->front = startingQueue->back = NULL;
+    startingQueue->queueSize = 0;
 }
 
 int isQueueEmpty(Queue* queue) {
-    return queue->head == NULL;
+    return queue->front == NULL;
 }
-int qSize(Queue* q) {
-    return q->_size;
+int queueSize(Queue* queue) {
+    return queue->queueSize;
 }
 
-tcb* get(Queue* q, int i) {
+tcb* queueGet(Queue* queue, int position) {
     int count = 0;
-    struct Node* curr = q->head;
+    struct Node* curr = queue->front;
     while (curr->next != NULL) {
-        if (i == count)
+        if (position == count)
             return curr->data;
         curr = curr->next;
         ++count;
     }
-    if (i == count) {
-        return q->tail->data;
+    if (position == count) {
+        return queue->back->data;
     }
 
     return NULL;
 }
 
-void enqueue(Queue* q, tcb* x) {
-    if (x == NULL) {
+void enqueue(Queue* queue, tcb* thread) {
+    if (queue == NULL) {
         return;
     }
 
-    Node* tmp = (struct Node*)malloc(sizeof(struct Node));
-    if (!tmp) {
+    Node* temp = (struct Node*)malloc(sizeof(struct Node));
+    if (!temp) {
         exit(EXIT_FAILURE);
     }
 
-    tmp->data = x;
+    temp->data = thread;
 
-    if (q->tail == NULL) {
-        q->head = q->tail = tmp;
-        ++(q->_size);
+    if (queue->back == NULL) {
+        queue->front = queue->back = temp;
+        ++(queue->queueSize);
         return;
     }
 
-    q->tail->next = tmp;
-    q->tail = tmp;
-    q->tail->next = NULL;
-    ++(q->_size);
+    queue->back->next = temp;
+    queue->back = temp;
+    queue->back->next = NULL;
+    ++(queue->queueSize);
 }
 
-tcb* dequeue(Queue* q) {
-    if (q->head == NULL) {
+tcb* dequeue(Queue* queue) {
+    if (queue->front == NULL) {
         return NULL;
     }
 
-    Node* tmp = q->head;
-    tcb* res = tmp->data;
-    q->head = q->head->next;
+    Node* temp = queue->front;
+    tcb* popped = temp->data;
+    queue->front = queue->front->next;
 
-    if (q->head == NULL) {
-        q->tail = NULL;
+    if (queue->front == NULL) {
+        queue->back = NULL;
     }
 
-    free(tmp);
-    --(q->_size);
-    return res;
+    free(temp);
+    --(queue->queueSize);
+    return popped;
 }
 
-tcb* peek(Queue* q) {
-    if (q->head == NULL) {
+tcb* peek(Queue* queue) {
+    if (queue->front == NULL) {
         return NULL;
     }
-    return q->head->data;
+    return queue->front->data;
 }
 
-tcb* getTail(Queue* q) {
-    if (q->tail == NULL) {
+tcb* getLast(Queue* queue) {
+    if (queue->back == NULL) {
         return NULL;
     }
-    return q->tail->data;
+    return queue->back->data;
 }
 
-void clear(Queue* q) {
-    Node* curr = q->head;
+void queueClear(Queue* queue) {
+    Node* curr = queue->front;
     Node* next = NULL;
 
     while (curr != NULL) {
@@ -505,20 +479,20 @@ void clear(Queue* q) {
         curr = next;
     }
 
-    q->head = q->tail = NULL;
-    q->_size = 0;
+    queue->front = queue->back = NULL;
+    queue->queueSize = 0;
 }
 
 int hash(struct HashMap *map, int key) {
-    return key % map->capacity;
+    return key % map->hashMapCapacity;
 }
 
 void initHashMap(struct HashMap *map) {
-    map->capacity = 205;
-    map->msize = 0;
-    map->arr = (struct HNode **)malloc(map->capacity * sizeof(struct HNode *));
+    map->hashMapCapacity = 205;
+    map->hashMapSize = 0;
+    map->arr = (struct HNode **)malloc(map->hashMapCapacity * sizeof(struct HNode *));
     
-    for (int i = 0; i < map->capacity; i++) {
+    for (int i = 0; i < map->hashMapCapacity; i++) {
         map->arr[i] = NULL;
     }
 
@@ -530,67 +504,67 @@ void initHashMap(struct HashMap *map) {
 }
 
 void put(struct HashMap *map, int key, tcb* value) {
-    struct HNode *tmp = (struct HNode *)malloc(sizeof(struct HNode));
-    tmp->key = key;
-    tmp->value = value;
+    struct HNode *temp = (struct HNode *)malloc(sizeof(struct HNode));
+    temp->key = key;
+    temp->value = value;
 
-    int hash_idx = hash(map, key);
+    int hashIndex = hash(map, key);
 
-    while (map->arr[hash_idx] != NULL && map->arr[hash_idx]->key != key && map->arr[hash_idx]->key != -1) {
-        ++hash_idx;
-        hash_idx %= map->capacity;
+    while (map->arr[hashIndex] != NULL && map->arr[hashIndex]->key != key && map->arr[hashIndex]->key != -1) {
+        ++hashIndex;
+        hashIndex %= map->hashMapCapacity;
     }
 
-    if (map->arr[hash_idx] == NULL || map->arr[hash_idx]->key == -1) {
-        map->msize++;
+    if (map->arr[hashIndex] == NULL || map->arr[hashIndex]->key == -1) {
+        map->hashMapSize++;
     }
 
-    map->arr[hash_idx] = tmp;
+    map->arr[hashIndex] = temp;
 }
 
 tcb* removeFromHashMap(HashMap *map, int key) {
-    int hash_idx = hash(map, key);
+    int hashIndex = hash(map, key);
 
-    while (map->arr[hash_idx] != NULL) {
-        if (map->arr[hash_idx]->key == key) {
-            struct HNode *tmp = map->arr[hash_idx];
-            map->arr[hash_idx] = map->dummy;
-            --map->msize;
+    while (map->arr[hashIndex] != NULL) {
+        if (map->arr[hashIndex]->key == key) {
+            struct HNode *tmp = map->arr[hashIndex];
+            map->arr[hashIndex] = map->dummy;
+            --map->hashMapSize;
             return tmp->value;
         }
-        ++hash_idx;
-        hash_idx %= map->capacity;
+        ++hashIndex;
+        hashIndex %= map->hashMapCapacity;
     }
 
     return NULL;
 }
 
 tcb* getFromHashMap(struct HashMap *map, int key) {
-    int hash_idx = hash(map, key);
+    int hashIndex = hash(map, key);
     int counter = 0;
 
-    while (map->arr[hash_idx] != NULL) {
+    while (map->arr[hashIndex] != NULL) {
         int counter = 0;
-        if (counter++ > map->capacity) {
+        if (counter++ > map->hashMapCapacity) {
             return NULL;
         }
 
-        if (map->arr[hash_idx]->key == key) {
-            return map->arr[hash_idx]->value;
+        if (map->arr[hashIndex]->key == key) {
+            return map->arr[hashIndex]->value;
         }
 
-        hash_idx++;
-        hash_idx %= map->capacity;
+        hashIndex++;
+        hashIndex %= map->hashMapCapacity;
     }
 
     return NULL;
 }
 
 int hashMapSize(struct HashMap *map) {
-    return map->msize;
+    return map->hashMapSize;
 }
 
-int isEmpty(struct HashMap *map) {
-    return map->msize == 0;
+int hashMapEmpty(struct HashMap *map) {
+    return map->hashMapSize == 0;
 }
 

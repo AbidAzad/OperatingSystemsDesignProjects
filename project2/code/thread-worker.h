@@ -55,9 +55,9 @@ typedef struct Node{
 }Node;
 
 typedef struct Queue{
-	Node* head;
-	Node* tail;
-    int _size;
+	Node* front;
+	Node* back;
+    int queueSize;
 }Queue;
 
 
@@ -77,10 +77,22 @@ typedef struct worker_mutex_t {
 
 // YOUR CODE HERE
 
+////////////////QUEUE DATA STRUCTURE
 
 
+int isLastQueue(int queueNum);
+void initializeQueue(Queue* startingQueue);
+int isQueueEmpty(Queue* queue);
+int queueSize(Queue* q);
+tcb* queueGet(Queue* queue, int position);
+void enqueue(Queue* queue, tcb* thread);
+tcb* dequeue(Queue* queue);
+tcb* peek(Queue* queue);
+tcb* getLast(Queue* queue);
+void queueClear(Queue* queue);
+////////////////////////////////////////////////
 
-
+////////////////////HASHMAP DATA STRUCTURE/////////////////
 typedef struct HNode {
     tcb* value;
     int key;
@@ -88,11 +100,33 @@ typedef struct HNode {
 
 typedef struct HashMap {
     struct HNode **arr;
-    int capacity;
-    int msize;
+    int hashMapCapacity;
+    int hashMapSize;
     struct HNode *dummy;
     int initialized;
 }HashMap;
+
+int hash(struct HashMap *map, int key);
+void initHashMap(struct HashMap *map);
+void put(struct HashMap *map, int key, tcb* value);
+tcb* removeFromHashMap(HashMap *map, int key);
+tcb* getFromHashMap(struct HashMap *map, int key);
+int hashMapSize(struct HashMap *map);
+int hashMapEmpty(struct HashMap *map);
+////////////////////////////////////////////////////////////
+
+
+//////////////////Helper Functions/////////////////////////////
+void worker_start(tcb *currTCB, void (*function)(void *), void *arg);
+static void schedule();
+static void sched_mlfq();
+static void sched_psjf();
+void createContext(ucontext_t* threadContext);
+void createSchedulerContext();
+void createMainContext();
+void setupTimer();
+int isThreadInactive(int queueNum);
+////////////////////////////////////////////////////////////////
 
 
 
