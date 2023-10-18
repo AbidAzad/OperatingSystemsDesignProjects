@@ -22,6 +22,7 @@
 #include <ucontext.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <limits.h>
 
 #define STACK_SIZE 8192 //SIGSTKSZ = 8192
 
@@ -46,6 +47,7 @@ typedef struct TCB {
     uint joiningThread;
 	// And more ...
     void* retVal;
+	int elapsed;
 	// YOUR CODE HERE
 } tcb; 
 

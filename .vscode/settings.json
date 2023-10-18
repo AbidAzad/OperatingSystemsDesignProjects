@@ -11,6 +11,8 @@
         "utility": "c",
         "variant": "c",
         "time.h": "c",
-        "vector": "c"
+        "vector": "c",
+        "limits.h": "c",
+        "bitset": "c"
     }
 }

@@ -19,7 +19,7 @@ double avg_resp_time=0;
 #define SCHEDULER_THREAD 0
 #define MAIN_THREAD 1
 #define QUEUE_NUM 4
-#define TIMESLICE 5
+#define QUANTUM 10
 int threadCounter = 2; // Global var to assign thread ids
 Queue threadQueue[QUEUE_NUM];
 int started = 1;
@@ -32,7 +32,11 @@ uint currentThreadTNum = MAIN_THREAD;
 int currentThreadQNum=0;
 int isDebugging = 0;
 enum sched_options {_PSJF, _MLFQ};
-int SCHED_TYPE = _MLFQ;
+#ifndef MLFQ
+	int SCHED_TYPE = _PSJF;
+#else 
+	int SCHED_TYPE = _MLFQ;
+#endif
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
@@ -57,7 +61,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	   newThread->TID = threadCounter;
 	   newThread->status = READY;
 	   newThread->joiningThread = 0;
-	   
+       newThread->elapsed = 0;
        // - allocate space of stack for this thread to run
 	   createContext(&newThread->context);
        getcontext(&newThread->context);
@@ -102,8 +106,8 @@ int worker_yield() {
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
 	tcb* currTCB = get_current_tcb();
+    currTCB->elapsed += QUANTUM;
     currTCB->status = READY;
-
     isYielding = 1;
 
     swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
@@ -228,10 +232,10 @@ static void schedule() {
 
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
 
-	// if (sched == PSJF)
-	//		sched_psjf();
-	// else if (sched == MLFQ)
-	// 		sched_mlfq();
+	 if (SCHED_TYPE == _PSJF)
+			sched_psjf();
+	 else if (SCHED_TYPE == _MLFQ)
+	 		sched_mlfq();
 
 	// YOUR CODE HERE
     currentThreadTNum= SCHEDULER_THREAD;
@@ -241,10 +245,32 @@ static void schedule() {
 
 /* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
 static void sched_psjf() {
-	// - your own implementation of PSJF
-	// (feel free to modify arguments and return types)
+    tcb* threads[(&threadQueue[0])->queueSize];  
+    int numThreads = 0;
 
-	// YOUR CODE HERE
+    while (!isQueueEmpty(&threadQueue[0])) {
+        threads[numThreads++] = dequeue(&threadQueue[0]);
+    }
+
+    tcb* selectedThread = NULL;
+
+    for (int i = 0; i < numThreads; i++) {
+        if (selectedThread == NULL || threads[i]->elapsed < selectedThread->elapsed) {
+            selectedThread = threads[i];
+        }
+    }
+
+    for (int i = 0; i < numThreads; i++) {
+        if (threads[i] != selectedThread) {
+            enqueue(&threadQueue[0], threads[i]);
+        }
+    }
+
+    selectedThread->elapsed+=QUANTUM;
+    enqueue(&threadQueue[0], selectedThread);
+
+    currentThreadTNum = selectedThread->TID;
+    setcontext(&selectedThread->context);
 }
 
 
@@ -296,6 +322,8 @@ void timer_handler(int signum) {
     if (currentThreadTNum != SCHEDULER_THREAD) {
         swapcontext(&get_current_tcb()->context, &get_scheduler_tcb()->context);
     }
+
+
 }
 void setupTimer() {
     struct itimerval it_val;	/* for setting itimer */
@@ -304,8 +332,8 @@ void setupTimer() {
         perror("Unable to catch SIGALRM");
         exit(1);
     }
-    it_val.it_value.tv_sec =     TIMESLICE/1000;
-    it_val.it_value.tv_usec =    (TIMESLICE*1000) % 1000000;
+    it_val.it_value.tv_sec =     QUANTUM/1000;
+    it_val.it_value.tv_usec =    (QUANTUM*1000) % 1000000;
     it_val.it_interval = it_val.it_value;
     if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
         perror("error calling setitimer()");
@@ -329,8 +357,8 @@ void stopTimer() {
 
 void startTimer() {
     struct itimerval it_val;	/* for setting itimer */
-    it_val.it_value.tv_sec =     TIMESLICE/1000;
-    it_val.it_value.tv_usec =    (TIMESLICE*1000) % 1000000;
+    it_val.it_value.tv_sec =     QUANTUM/1000;
+    it_val.it_value.tv_usec =    (QUANTUM*1000) % 1000000;
     it_val.it_interval = it_val.it_value;
     if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
         perror("error calling setitimer()");
@@ -488,7 +516,7 @@ int hash(struct HashMap *map, int key) {
 }
 
 void initHashMap(struct HashMap *map) {
-    map->hashMapCapacity = 205;
+    map->hashMapCapacity = 300;
     map->hashMapSize = 0;
     map->arr = (struct HNode **)malloc(map->hashMapCapacity * sizeof(struct HNode *));
     
