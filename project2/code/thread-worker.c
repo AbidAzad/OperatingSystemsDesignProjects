@@ -111,7 +111,8 @@ int worker_yield() {
     isYielding = 1;
 
     swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
-	// YOUR CODE HERE
+	tot_cntx_switches++;
+    // YOUR CODE HERE
 	
 	return 0;
 };
@@ -148,6 +149,7 @@ int worker_join(worker_t thread, void **value_ptr) {
         currTCB->status = BLOCKED_JOIN;
 
         swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
+        tot_cntx_switches++;    
     }
 
     if(value_ptr != NULL) {
@@ -181,7 +183,8 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 			enqueue(&(mutex->threadQueue), currTCB);
 			currTCB->status = BLOCKED_MUTEX;
 			swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
-		}
+            tot_cntx_switches++;
+        }
 
 		mutex->owner = get_current_tcb()->TID;
         return 0;
@@ -237,40 +240,53 @@ static void schedule() {
 	 else if (SCHED_TYPE == _MLFQ)
 	 		sched_mlfq();
 
-	// YOUR CODE HERE
-    currentThreadTNum= SCHEDULER_THREAD;
-    sched_mlfq();
+	
 
 }
 
 /* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
 static void sched_psjf() {
-    tcb* threads[(&threadQueue[0])->queueSize];  
-    int numThreads = 0;
+    // Get the current running thread
+    tcb* moveToBack = NULL;
+    if (isThreadInactive(0)) {
+        dequeue(&threadQueue[0]);
+    } else if (isYielding || isLastQueue(0)) {
+        moveToBack= dequeue(&threadQueue[0]);
+    } 
 
+    isYielding = 0;
+
+    int numThreads = 0; 
+
+    tcb** threads = malloc(sizeof(tcb*) * (&threadQueue[0])->queueSize);
     while (!isQueueEmpty(&threadQueue[0])) {
         threads[numThreads++] = dequeue(&threadQueue[0]);
     }
-
-    tcb* selectedThread = NULL;
-
+    
+    tcb* minElapsedThread = NULL;
     for (int i = 0; i < numThreads; i++) {
-        if (selectedThread == NULL || threads[i]->elapsed < selectedThread->elapsed) {
-            selectedThread = threads[i];
+        if (minElapsedThread == NULL || threads[i]->elapsed < minElapsedThread->elapsed) {
+            minElapsedThread = threads[i];
         }
     }
-
+    if(moveToBack!=NULL)
+        enqueue(&threadQueue[0], moveToBack);
+        
     for (int i = 0; i < numThreads; i++) {
-        if (threads[i] != selectedThread) {
+        if (threads[i] != minElapsedThread) {
             enqueue(&threadQueue[0], threads[i]);
         }
     }
+    free(threads);
+    if(minElapsedThread != NULL){
+    minElapsedThread->elapsed+=QUANTUM;
+    enqueue(&threadQueue[0], minElapsedThread);
 
-    selectedThread->elapsed+=QUANTUM;
-    enqueue(&threadQueue[0], selectedThread);
-
-    currentThreadTNum = selectedThread->TID;
-    setcontext(&selectedThread->context);
+    tcb* currTCB = peek(&threadQueue[0]);
+    currentThreadTNum = currTCB->TID;
+    setcontext(&currTCB->context);
+    tot_cntx_switches++;
+    }
 }
 
 
@@ -321,6 +337,7 @@ void timer_handler(int signum) {
     // setupTimer expired, schedule next thread
     if (currentThreadTNum != SCHEDULER_THREAD) {
         swapcontext(&get_current_tcb()->context, &get_scheduler_tcb()->context);
+        tot_cntx_switches++;
     }
 
 
