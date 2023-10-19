@@ -37,7 +37,8 @@ enum sched_options {_PSJF, _MLFQ};
 #else 
 	int SCHED_TYPE = _MLFQ;
 #endif
-
+int completedThreads = 0;
+int scheduledThreads = 0;
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
@@ -62,6 +63,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	   newThread->status = READY;
 	   newThread->joiningThread = 0;
        newThread->elapsed = 0;
+       gettimeofday(&newThread->start_time, NULL);
        // - allocate space of stack for this thread to run
 	   createContext(&newThread->context);
        getcontext(&newThread->context);
@@ -92,7 +94,13 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 }
 
 void worker_start(tcb *currTCB, void (*function)(void *), void *arg) {
+    struct timeval start_time, end_time;
+    gettimeofday(&currTCB->start_time, NULL);
     function(arg);
+   
+
+   
+    
     currTCB->status = FINISHED;
     free(currTCB->context.uc_stack.ss_sp);
 
@@ -129,7 +137,10 @@ void worker_exit(void *value_ptr) {
         joinedTCB->status = READY;
         enqueue(&threadQueue[0],joinedTCB);
     }
+    gettimeofday(&currTCB->end_time, NULL);
+    avg_turn_time =  (double)((avg_turn_time * completedThreads + ((double)((&currTCB->end_time.tv_sec - &currTCB->start_time.tv_sec) / 1000) + ((&currTCB->end_time.tv_usec - &currTCB->start_time.tv_usec) * 1000))) / (completedThreads + 1));
 
+    completedThreads++;
     currTCB->status = FINISHED;
     setcontext(&get_scheduler_tcb()->context);
 	// YOUR CODE HERE
@@ -285,6 +296,7 @@ static void sched_psjf() {
     tcb* currTCB = peek(&threadQueue[0]);
     currentThreadTNum = currTCB->TID;
     setcontext(&currTCB->context);
+    
     tot_cntx_switches++;
     }
 }
@@ -337,6 +349,9 @@ void timer_handler(int signum) {
     // setupTimer expired, schedule next thread
     if (currentThreadTNum != SCHEDULER_THREAD) {
         swapcontext(&get_current_tcb()->context, &get_scheduler_tcb()->context);
+        gettimeofday(&get_scheduler_tcb()->end_time, NULL);
+        avg_resp_time =  (double)((avg_resp_time * scheduledThreads + ((double)((&get_scheduler_tcb()->end_time.tv_sec - &get_scheduler_tcb()->start_time.tv_sec) / 1000) + ((&get_scheduler_tcb()->end_time.tv_usec - &get_scheduler_tcb()->start_time.tv_usec) * 1000))) / (scheduledThreads + 1));
+        scheduledThreads++;
         tot_cntx_switches++;
     }
 

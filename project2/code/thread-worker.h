@@ -48,6 +48,8 @@ typedef struct TCB {
 	// And more ...
     void* retVal;
 	int elapsed;
+	struct timeval start_time;
+	struct timeval end_time;
 	// YOUR CODE HERE
 } tcb; 
 

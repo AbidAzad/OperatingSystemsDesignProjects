@@ -13,6 +13,7 @@
         "time.h": "c",
         "vector": "c",
         "limits.h": "c",
-        "bitset": "c"
+        "bitset": "c",
+        "system_error": "c"
     }
 }
