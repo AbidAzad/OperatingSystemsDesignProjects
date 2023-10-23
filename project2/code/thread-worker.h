@@ -1,7 +1,7 @@
 // File:	worker_t.h
 
-// List all group member's name:
-// username of iLab:
+// List all group member's name: Abid Azad, Ghautham Sambabu 
+// username of iLab: rlab
 // iLab Server:
 
 #ifndef WORKER_T_H
@@ -50,7 +50,6 @@ typedef struct TCB {
 	int elapsed;
 	struct timeval start_time;
 	struct timeval end_time;
-	// YOUR CODE HERE
 } tcb; 
 
 typedef struct Node{

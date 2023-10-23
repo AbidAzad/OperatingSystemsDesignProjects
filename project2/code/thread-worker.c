@@ -1,7 +1,7 @@
 // File:	thread-worker.c
 
-// List all group member's name:
-// username of iLab:
+// List all group member's name: Ghautham Sambabu, Abid Azad
+// username of iLab: ilab2
 // iLab Server:
 
 #include "thread-worker.h"
@@ -12,10 +12,6 @@ long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
 
-
-// INITAILIZE ALL YOUR OTHER VARIABLES HERE
-
-// YOUR CODE HERE
 #define SCHEDULER_THREAD 0
 #define MAIN_THREAD 1
 #define QUEUE_NUM 4
@@ -39,7 +35,7 @@ enum sched_options {_PSJF, _MLFQ};
 #endif
 int completedThreads = 0;
 int scheduledThreads = 0;
-/* create a new thread */
+// create a new thread 
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
 		
@@ -68,8 +64,10 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	   createContext(&newThread->context);
        getcontext(&newThread->context);
 	   
-       // after everything is set, push this thread into run queue and 
-       // - make it ready for the execution.
+       /*
+        After everything is set, push this thread into run queue 
+        and make it ready for the execution.
+       */ 
 	   makecontext(&newThread->context, (void (*)()) &worker_start, 3, newThread, function, arg);
        put(map, threadCounter++, newThread);
 
@@ -88,7 +86,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
     } else {
        enqueue(&threadQueue[0], newThread);
     }
-       // YOUR CODE HERE
+    
 	
     return 0;
 }
@@ -110,9 +108,11 @@ void worker_start(tcb *currTCB, void (*function)(void *), void *arg) {
 /* give CPU possession to other user-level worker threads voluntarily */
 int worker_yield() {
 	
-	// - change worker thread's state from Running to Ready
-	// - save context of this thread to its thread control block
-	// - switch from thread context to scheduler context
+	/*
+     - change worker thread's state from Running to Ready
+	 - save context of this thread to its thread control block
+	 - switch from thread context to scheduler context
+    */ 
 	tcb* currTCB = get_current_tcb();
     currTCB->elapsed += QUANTUM;
     currTCB->status = READY;
@@ -120,7 +120,6 @@ int worker_yield() {
 
     swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
 	tot_cntx_switches++;
-    // YOUR CODE HERE
 	
 	return 0;
 };
@@ -143,15 +142,17 @@ void worker_exit(void *value_ptr) {
     completedThreads++;
     currTCB->status = FINISHED;
     setcontext(&get_scheduler_tcb()->context);
-	// YOUR CODE HERE
+	
 };
 
 
 /* Wait for thread termination */
 int worker_join(worker_t thread, void **value_ptr) {
 	
-	// - wait for a specific thread to terminate
-	// - de-allocate any dynamic memory created by the joining thread
+	/*
+     - wait for a specific thread to terminate
+	 - de-allocate any dynamic memory created by the joining thread
+    */ 
 	tcb* currTCB = get_current_tcb();
     tcb* joinedTCB = getFromHashMap(map, thread);
 
@@ -167,7 +168,6 @@ int worker_join(worker_t thread, void **value_ptr) {
         *value_ptr = joinedTCB->retVal;
     }
 
-	// YOUR CODE HERE
 	return 0;
 };
 
@@ -175,20 +175,20 @@ int worker_join(worker_t thread, void **value_ptr) {
 int worker_mutex_init(worker_mutex_t *mutex, 
                           const pthread_mutexattr_t *mutexattr) {
 	//- initialize data structures for this mutex
-
-	// YOUR CODE HERE
 	return 0;
 };
 
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
 
-        // - use the built-in test-and-set atomic function to test the mutex
-        // - if the mutex is acquired successfully, enter the critical section
-        // - if acquiring mutex fails, push current thread into block list and
-        // context switch to the scheduler thread
+        /*
+           - use the built-in test-and-set atomic function to test the mutex
+           - if the mutex is acquired successfully, enter the critical section
+           - if acquiring mutex fails, push current thread into block list and
+           context switch to the scheduler thread
+        */ 
 
-        // YOUR CODE HERE
+
 		while (atomic_flag_test_and_set(&mutex->flag)) {
 			tcb* currTCB = get_current_tcb();
 			enqueue(&(mutex->threadQueue), currTCB);
@@ -207,7 +207,6 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// - put threads in block list to run queue 
 	// so that they could compete for mutex later.
 
-	// YOUR CODE HERE
  if(get_current_tcb()->TID != mutex->owner) {
         printf("Unauthorized Thread Unlocking.");
         exit(1);
@@ -224,9 +223,6 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
     }
     atomic_flag_clear_explicit(&mutex->flag, memory_order_seq_cst);
 
-
-
-
 	return 0;
 };
 
@@ -240,10 +236,6 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 
 /* scheduler */
 static void schedule() {
-	// - every time a timer interrupt occurs, your worker thread library 
-	// should be contexted switched from a thread context to this 
-	// schedule() function
-
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
 
 	 if (SCHED_TYPE == _PSJF)
@@ -304,10 +296,6 @@ static void sched_psjf() {
 
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq() {
-	// - your own implementation of MLFQ
-	// (feel free to modify arguments and return types)
-
-	// YOUR CODE HERE
 	int qNum = currentThreadQNum;
 
     if (isThreadInactive(qNum)) {
@@ -340,10 +328,6 @@ void print_app_stats(void) {
        fprintf(stderr, "Average response time  %lf \n", avg_resp_time);
 }
 
-
-// Feel free to add any other functions you need
-
-// YOUR CODE HERE
 void timer_handler(int signum) {
 
     // setupTimer expired, schedule next thread

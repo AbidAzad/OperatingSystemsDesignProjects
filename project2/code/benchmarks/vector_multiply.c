@@ -41,7 +41,6 @@ void verify() {
 int main(int argc, char **argv) {
 	
 	int i = 0;
-
 	if (argc == 1) {
 		thread_num = DEFAULT_THREAD_NUM;
 	} else {
@@ -52,7 +51,7 @@ int main(int argc, char **argv) {
 			thread_num = atoi(argv[1]);
 		}
 	}
-
+	printf("%d\n",thread_num); 
 	// initialize counter
 	counter = (int*)malloc(thread_num*sizeof(int));
 	for (i = 0; i < thread_num; ++i)
