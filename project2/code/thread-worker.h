@@ -91,7 +91,6 @@ tcb* queueGet(Queue* queue, int position);
 void enqueue(Queue* queue, tcb* thread);
 tcb* dequeue(Queue* queue);
 tcb* peek(Queue* queue);
-tcb* getLast(Queue* queue);
 void queueClear(Queue* queue);
 ////////////////////////////////////////////////
 
@@ -112,10 +111,8 @@ typedef struct HashMap {
 int hash(struct HashMap *map, int key);
 void initHashMap(struct HashMap *map);
 void put(struct HashMap *map, int key, tcb* value);
-tcb* removeFromHashMap(HashMap *map, int key);
 tcb* getFromHashMap(struct HashMap *map, int key);
 int hashMapSize(struct HashMap *map);
-int hashMapEmpty(struct HashMap *map);
 ////////////////////////////////////////////////////////////
 
 
@@ -125,8 +122,6 @@ static void schedule();
 static void sched_mlfq();
 static void sched_psjf();
 void createContext(ucontext_t* threadContext);
-void createSchedulerContext();
-void createMainContext();
 void setupTimer();
 int isThreadInactive(int queueNum);
 ////////////////////////////////////////////////////////////////

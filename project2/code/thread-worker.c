@@ -21,12 +21,9 @@ Queue threadQueue[QUEUE_NUM];
 int started = 1;
 HashMap *map = NULL;
 int isSchedCreated = 0;
-tcb* get_current_tcb();
-tcb* get_scheduler_tcb();
 int isYielding = 0;
 uint currentThreadTNum = MAIN_THREAD;
 int currentThreadQNum=0;
-int isDebugging = 0;
 enum sched_options {_PSJF, _MLFQ};
 #ifndef MLFQ
 	int SCHED_TYPE = _PSJF;
@@ -72,8 +69,18 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
        put(map, threadCounter++, newThread);
 
 	   if (!isSchedCreated) {
-       	createSchedulerContext();
-        createMainContext();
+       	tcb* schedTCB = (tcb*) malloc(sizeof(tcb));
+        schedTCB->TID = 0;
+        createContext(&schedTCB->context);
+
+        makecontext(&schedTCB->context, (void (*)()) &schedule, 0);
+
+        put(map, SCHEDULER_THREAD, schedTCB);
+        tcb* mainTCB = (tcb*) malloc(sizeof(tcb));
+        mainTCB->TID = 1;
+        mainTCB->status = READY;
+
+        put(map, MAIN_THREAD, mainTCB);
 
         enqueue(&threadQueue[0], getFromHashMap(map, MAIN_THREAD));
         enqueue(&threadQueue[0], newThread);
@@ -102,7 +109,7 @@ void worker_start(tcb *currTCB, void (*function)(void *), void *arg) {
     currTCB->status = FINISHED;
     free(currTCB->context.uc_stack.ss_sp);
 
-    setcontext(&get_scheduler_tcb()->context);
+    setcontext(&getFromHashMap(map, SCHEDULER_THREAD)->context);
 }
 
 /* give CPU possession to other user-level worker threads voluntarily */
@@ -113,12 +120,12 @@ int worker_yield() {
 	 - save context of this thread to its thread control block
 	 - switch from thread context to scheduler context
     */ 
-	tcb* currTCB = get_current_tcb();
+	tcb* currTCB = getFromHashMap(map, currentThreadTNum);
     currTCB->elapsed += QUANTUM;
     currTCB->status = READY;
     isYielding = 1;
 
-    swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
+    swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
 	tot_cntx_switches++;
 	
 	return 0;
@@ -127,7 +134,7 @@ int worker_yield() {
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
-	tcb* currTCB = get_current_tcb();
+	tcb* currTCB = getFromHashMap(map, currentThreadTNum);
     currTCB->retVal = value_ptr;
     free(currTCB->context.uc_stack.ss_sp);
 
@@ -141,7 +148,7 @@ void worker_exit(void *value_ptr) {
 
     completedThreads++;
     currTCB->status = FINISHED;
-    setcontext(&get_scheduler_tcb()->context);
+    setcontext(&getFromHashMap(map, SCHEDULER_THREAD)->context);
 	
 };
 
@@ -153,14 +160,14 @@ int worker_join(worker_t thread, void **value_ptr) {
      - wait for a specific thread to terminate
 	 - de-allocate any dynamic memory created by the joining thread
     */ 
-	tcb* currTCB = get_current_tcb();
+	tcb* currTCB = getFromHashMap(map, currentThreadTNum);
     tcb* joinedTCB = getFromHashMap(map, thread);
 
     if (joinedTCB->status != FINISHED) {
         joinedTCB->joiningThread = currTCB->TID;
         currTCB->status = BLOCKED_JOIN;
 
-        swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
+        swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
         tot_cntx_switches++;    
     }
 
@@ -190,14 +197,14 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 
 
 		while (atomic_flag_test_and_set(&mutex->flag)) {
-			tcb* currTCB = get_current_tcb();
+			tcb* currTCB = getFromHashMap(map, currentThreadTNum);
 			enqueue(&(mutex->threadQueue), currTCB);
 			currTCB->status = BLOCKED_MUTEX;
-			swapcontext(&currTCB->context, &get_scheduler_tcb()->context);
+			swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
             tot_cntx_switches++;
         }
 
-		mutex->owner = get_current_tcb()->TID;
+		mutex->owner = getFromHashMap(map, currentThreadTNum)->TID;
         return 0;
 };
 
@@ -207,7 +214,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// - put threads in block list to run queue 
 	// so that they could compete for mutex later.
 
- if(get_current_tcb()->TID != mutex->owner) {
+ if(getFromHashMap(map, currentThreadTNum)->TID != mutex->owner) {
         printf("Unauthorized Thread Unlocking.");
         exit(1);
     }
@@ -332,30 +339,25 @@ void timer_handler(int signum) {
 
     // setupTimer expired, schedule next thread
     if (currentThreadTNum != SCHEDULER_THREAD) {
-        swapcontext(&get_current_tcb()->context, &get_scheduler_tcb()->context);
-        gettimeofday(&get_scheduler_tcb()->end_time, NULL);
-        avg_resp_time =  (double)((avg_resp_time * scheduledThreads + ((double)((&get_scheduler_tcb()->end_time.tv_sec - &get_scheduler_tcb()->start_time.tv_sec) / 1000) + ((&get_scheduler_tcb()->end_time.tv_usec - &get_scheduler_tcb()->start_time.tv_usec) * 1000))) / (scheduledThreads + 1));
+        swapcontext(&getFromHashMap(map, currentThreadTNum)->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
+        gettimeofday(&getFromHashMap(map, SCHEDULER_THREAD)->end_time, NULL);
+        avg_resp_time =  (double)((avg_resp_time * scheduledThreads + ((double)((&getFromHashMap(map, SCHEDULER_THREAD)->end_time.tv_sec - &getFromHashMap(map, SCHEDULER_THREAD)->start_time.tv_sec) / 1000) + ((&getFromHashMap(map, SCHEDULER_THREAD)->end_time.tv_usec - &getFromHashMap(map, SCHEDULER_THREAD)->start_time.tv_usec) * 1000))) / (scheduledThreads + 1));
         scheduledThreads++;
         tot_cntx_switches++;
     }
 
-
 }
 void setupTimer() {
     struct itimerval it_val;	/* for setting itimer */
-
     if (signal(SIGALRM, timer_handler) == SIG_ERR) {
-        perror("Unable to catch SIGALRM");
         exit(1);
     }
-    it_val.it_value.tv_sec =     QUANTUM/1000;
-    it_val.it_value.tv_usec =    (QUANTUM*1000) % 1000000;
+    it_val.it_value.tv_sec = QUANTUM/1000;
+    it_val.it_value.tv_usec = (QUANTUM*1000) % 1000000;
     it_val.it_interval = it_val.it_value;
     if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
-        perror("error calling setitimer()");
         exit(1);
     }
-
     int isTimerFiredOnce = 0;
     while (!isTimerFiredOnce) {
         pause();
@@ -377,7 +379,6 @@ void startTimer() {
     it_val.it_value.tv_usec =    (QUANTUM*1000) % 1000000;
     it_val.it_interval = it_val.it_value;
     if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
-        perror("error calling setitimer()");
         exit(1);
     }
 }
@@ -391,34 +392,8 @@ void createContext(ucontext_t* threadContext) {
     threadContext->uc_stack.ss_flags = 0;
 
     if (threadContext->uc_stack.ss_sp == NULL) {
-       	printf("Error: Unable to allocate stack memory: %d bytes in the heap\n", STACK_SIZE);
         exit(1);
     }
-}
-
-void createSchedulerContext() {
-    tcb* schedTCB = (tcb*) malloc(sizeof(tcb));
-    schedTCB->TID = 0;
-    createContext(&schedTCB->context);
-
-    makecontext(&schedTCB->context, (void (*)()) &schedule, 0);
-
-    put(map, SCHEDULER_THREAD, schedTCB);
-}
-
-void createMainContext() {
-    tcb* mainTCB = (tcb*) malloc(sizeof(tcb));
-    mainTCB->TID = 1;
-    mainTCB->status = READY;
-
-    put(map, MAIN_THREAD, mainTCB);
-}
-tcb* get_current_tcb() {
-    return getFromHashMap(map, currentThreadTNum);
-}
-
-tcb* get_scheduler_tcb() {
-    return getFromHashMap(map, SCHEDULER_THREAD);
 }
 
 int isLastQueue(int queueNum) {
@@ -506,13 +481,6 @@ tcb* peek(Queue* queue) {
     return queue->front->data;
 }
 
-tcb* getLast(Queue* queue) {
-    if (queue->back == NULL) {
-        return NULL;
-    }
-    return queue->back->data;
-}
-
 void queueClear(Queue* queue) {
     Node* curr = queue->front;
     Node* next = NULL;
@@ -566,23 +534,6 @@ void put(struct HashMap *map, int key, tcb* value) {
     map->arr[hashIndex] = temp;
 }
 
-tcb* removeFromHashMap(HashMap *map, int key) {
-    int hashIndex = hash(map, key);
-
-    while (map->arr[hashIndex] != NULL) {
-        if (map->arr[hashIndex]->key == key) {
-            struct HNode *tmp = map->arr[hashIndex];
-            map->arr[hashIndex] = map->dummy;
-            --map->hashMapSize;
-            return tmp->value;
-        }
-        ++hashIndex;
-        hashIndex %= map->hashMapCapacity;
-    }
-
-    return NULL;
-}
-
 tcb* getFromHashMap(struct HashMap *map, int key) {
     int hashIndex = hash(map, key);
     int counter = 0;
@@ -608,7 +559,4 @@ int hashMapSize(struct HashMap *map) {
     return map->hashMapSize;
 }
 
-int hashMapEmpty(struct HashMap *map) {
-    return map->hashMapSize == 0;
-}
 
