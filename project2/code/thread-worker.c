@@ -16,7 +16,7 @@ double avg_resp_time=0;
 #define MAIN_THREAD 1
 #define QUEUE_NUM 4
 #define QUANTUM 10
-int threadCounter = 2; // Global var to assign thread ids
+int threadCounter = 2; 
 Queue threadQueue[QUEUE_NUM];
 int started = 1;
 HashMap *map = NULL;
@@ -32,51 +32,45 @@ enum sched_options {_PSJF, _MLFQ};
 #endif
 int completedThreads = 0;
 int scheduledThreads = 0;
+
 // create a new thread 
-int worker_create(worker_t * thread, pthread_attr_t * attr, 
-                      void *(*function)(void*), void * arg) {
-		
-		if(started){
-            for(int i = 0; i<QUEUE_NUM;i++){
-                initializeQueue(&threadQueue[i]);
-            }
-			
-			started=0;
-		}
-
-		if (map == NULL){
-			map = (HashMap *)malloc(sizeof(HashMap));
-			initHashMap(map);
-		}
-        *thread = threadCounter;
-       // - create Thread Control Block (TCB)
-	   tcb* newThread = (tcb*) malloc(sizeof(tcb));
-       // - create and initialize the context of this worker thread
-	   newThread->TID = threadCounter;
-	   newThread->status = READY;
-	   newThread->joiningThread = 0;
-       newThread->elapsed = 0;
-       newThread->beenScheduledOnce=0;
-       gettimeofday(&newThread->start_time, NULL);
-       // - allocate space of stack for this thread to run
-	   createContext(&newThread->context);
-       getcontext(&newThread->context);
-	   
-       /*
-        After everything is set, push this thread into run queue 
-        and make it ready for the execution.
-       */ 
-	   makecontext(&newThread->context, (void (*)()) &worker_start, 3, newThread, function, arg);
-       put(map, threadCounter++, newThread);
-
-	   if (!isSchedCreated) {
-       	tcb* schedTCB = (tcb*) malloc(sizeof(tcb));
+int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {	
+    if(started){
+        for(int i = 0; i<QUEUE_NUM;i++){
+            initializeQueue(&threadQueue[i]);
+        }
+        started=0;
+    }
+    if (map == NULL){
+        map = (HashMap *)malloc(sizeof(HashMap));
+        initHashMap(map);
+    }
+    *thread = threadCounter;
+    // - create Thread Control Block (TCB)
+    tcb* newThread = (tcb*) malloc(sizeof(tcb));
+    // - create and initialize the context of this worker thread
+    newThread->TID = threadCounter;
+    newThread->status = READY;
+    newThread->joiningThread = 0;
+    newThread->elapsed = 0;
+    newThread->beenScheduledOnce=0;
+    gettimeofday(&newThread->start_time, NULL);
+    // - allocate space of stack for this thread to run
+    createContext(&newThread->context);
+    getcontext(&newThread->context);   
+    /*
+    After everything is set, push this thread into run queue 
+    and make it ready for the execution.
+    */ 
+    makecontext(&newThread->context, (void (*)()) &worker_start, 3, newThread, function, arg);
+    put(map, threadCounter++, newThread);
+    if (!isSchedCreated) {
+        tcb* schedTCB = (tcb*) malloc(sizeof(tcb));
         schedTCB->TID = 0;
         gettimeofday(&schedTCB->start_time, NULL);
         schedTCB->beenScheduledOnce = 0;
         createContext(&schedTCB->context);
         makecontext(&schedTCB->context, (void (*)()) &schedule, 0);
-
         put(map, SCHEDULER_THREAD, schedTCB);
         tcb* mainTCB = (tcb*) malloc(sizeof(tcb));
         mainTCB->TID = 1;
@@ -84,40 +78,27 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
         gettimeofday(&mainTCB->start_time, NULL);
         mainTCB->beenScheduledOnce = 0;
         put(map, MAIN_THREAD, mainTCB);
-
         enqueue(&threadQueue[0], getFromHashMap(map, MAIN_THREAD));
         enqueue(&threadQueue[0], newThread);
-
         isSchedCreated = 1;
-
-	    
-
         setupTimer();
     } else {
-       enqueue(&threadQueue[0], newThread);
+    enqueue(&threadQueue[0], newThread);
     }
-    
-	
     return 0;
 }
 
 void worker_start(tcb *currTCB, void (*function)(void *), void *arg) {
     struct timeval start_time, end_time;
     gettimeofday(&currTCB->start_time, NULL);
-    function(arg);
-   
-
-   
-    
+    function(arg); 
     currTCB->status = FINISHED;
     free(currTCB->context.uc_stack.ss_sp);
-
     setcontext(&getFromHashMap(map, SCHEDULER_THREAD)->context);
 }
 
 /* give CPU possession to other user-level worker threads voluntarily */
 int worker_yield() {
-	
 	/*
      - change worker thread's state from Running to Ready
 	 - save context of this thread to its thread control block
@@ -127,10 +108,8 @@ int worker_yield() {
     currTCB->elapsed += QUANTUM;
     currTCB->status = READY;
     isYielding = 1;
-
     swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
 	tot_cntx_switches++;
-	
 	return 0;
 };
 
@@ -140,7 +119,6 @@ void worker_exit(void *value_ptr) {
 	tcb* currTCB = getFromHashMap(map, currentThreadTNum);
     currTCB->retVal = value_ptr;
     free(currTCB->context.uc_stack.ss_sp);
-
     if (currTCB->joiningThread != 0) {
         tcb* joinedTCB = getFromHashMap(map, currTCB->joiningThread);
         joinedTCB->status = READY;
@@ -148,36 +126,28 @@ void worker_exit(void *value_ptr) {
     }
     gettimeofday(&currTCB->end_time, NULL);
     avg_turn_time = ((avg_turn_time * completedThreads + ((double)(((double)(currTCB->end_time.tv_sec - currTCB->start_time.tv_sec) * 1000) + ((double)(currTCB->end_time.tv_usec - currTCB->start_time.tv_usec)) / 1000))) / (completedThreads + 1));
-
     completedThreads++;
     currTCB->status = FINISHED;
-    setcontext(&getFromHashMap(map, SCHEDULER_THREAD)->context);
-	
+    setcontext(&getFromHashMap(map, SCHEDULER_THREAD)->context);	
 };
 
-
 /* Wait for thread termination */
-int worker_join(worker_t thread, void **value_ptr) {
-	
+int worker_join(worker_t thread, void **value_ptr) {	
 	/*
      - wait for a specific thread to terminate
 	 - de-allocate any dynamic memory created by the joining thread
     */ 
 	tcb* currTCB = getFromHashMap(map, currentThreadTNum);
     tcb* joinedTCB = getFromHashMap(map, thread);
-
     if (joinedTCB->status != FINISHED) {
         joinedTCB->joiningThread = currTCB->TID;
         currTCB->status = BLOCKED_JOIN;
-
         swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
         tot_cntx_switches++;    
     }
-
     if(value_ptr != NULL) {
         *value_ptr = joinedTCB->retVal;
     }
-
 	return 0;
 };
 
@@ -190,15 +160,12 @@ int worker_mutex_init(worker_mutex_t *mutex,
 
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
-
         /*
            - use the built-in test-and-set atomic function to test the mutex
            - if the mutex is acquired successfully, enter the critical section
            - if acquiring mutex fails, push current thread into block list and
            context switch to the scheduler thread
         */ 
-
-
 		while (atomic_flag_test_and_set(&mutex->flag)) {
 			tcb* currTCB = getFromHashMap(map, currentThreadTNum);
 			enqueue(&(mutex->threadQueue), currTCB);
@@ -206,7 +173,6 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 			swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
             tot_cntx_switches++;
         }
-
 		mutex->owner = getFromHashMap(map, currentThreadTNum)->TID;
         return 0;
 };
@@ -216,26 +182,20 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// - release mutex and make it available again. 
 	// - put threads in block list to run queue 
 	// so that they could compete for mutex later.
-
- if(getFromHashMap(map, currentThreadTNum)->TID != mutex->owner) {
-        printf("Unauthorized Thread Unlocking.");
+    if(getFromHashMap(map, currentThreadTNum)->TID != mutex->owner) {
         exit(1);
     }
-
     if(isQueueEmpty(&(mutex->threadQueue))) {
         for (int i = 0; i < queueSize(&(mutex->threadQueue)); i++) {
             tcb* x = queueGet(&(mutex->threadQueue), i);
             getFromHashMap(map, x->TID)->status = READY;
             enqueue(&threadQueue[0], getFromHashMap(map, x->TID));
         }
-
         queueClear(&(mutex->threadQueue));
     }
     atomic_flag_clear_explicit(&mutex->flag, memory_order_seq_cst);
-
 	return 0;
 };
-
 
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex) {
@@ -247,14 +207,10 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 /* scheduler */
 static void schedule() {
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
-
 	 if (SCHED_TYPE == _PSJF)
 			sched_psjf();
 	 else if (SCHED_TYPE == _MLFQ)
 	 		sched_mlfq();
-
-	
-
 }
 
 /* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
@@ -266,16 +222,12 @@ static void sched_psjf() {
     } else if (isYielding || isLastQueue(0)) {
         moveToBack= dequeue(&threadQueue[0]);
     } 
-
     isYielding = 0;
-
     int numThreads = 0; 
-
     tcb** threads = malloc(sizeof(tcb*) * (&threadQueue[0])->queueSize);
     while (!isQueueEmpty(&threadQueue[0])) {
         threads[numThreads++] = dequeue(&threadQueue[0]);
     }
-    
     tcb* minElapsedThread = NULL;
     for (int i = 0; i < numThreads; i++) {
         if (minElapsedThread == NULL || threads[i]->elapsed < minElapsedThread->elapsed) {
@@ -283,8 +235,7 @@ static void sched_psjf() {
         }
     }
     if(moveToBack!=NULL)
-        enqueue(&threadQueue[0], moveToBack);
-        
+        enqueue(&threadQueue[0], moveToBack);       
     for (int i = 0; i < numThreads; i++) {
         if (threads[i] != minElapsedThread) {
             enqueue(&threadQueue[0], threads[i]);
@@ -292,22 +243,18 @@ static void sched_psjf() {
     }
     free(threads);
     if(minElapsedThread != NULL){
-    minElapsedThread->elapsed+=QUANTUM;
-    enqueue(&threadQueue[0], minElapsedThread);
-
-    tcb* currTCB = peek(&threadQueue[0]);
-    currentThreadTNum = currTCB->TID;
-    setcontext(&currTCB->context);
-    
-    tot_cntx_switches++;
+        minElapsedThread->elapsed+=QUANTUM;
+        enqueue(&threadQueue[0], minElapsedThread);
+        tcb* currTCB = peek(&threadQueue[0]);
+        currentThreadTNum = currTCB->TID;
+        setcontext(&currTCB->context);
+        tot_cntx_switches++;
     }
 }
-
 
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq() {
 	int qNum = currentThreadQNum;
-
     if (isThreadInactive(qNum)) {
         dequeue(&threadQueue[qNum]);
     } else if(isYielding || isLastQueue(qNum)) {
@@ -316,31 +263,26 @@ static void sched_mlfq() {
         enqueue(&threadQueue[qNum+1], dequeue(&threadQueue[qNum]));
     }
     isYielding = 0;
-
     int queueNum = 0;
     while (queueNum < QUEUE_NUM) {
-		if (isQueueEmpty(&threadQueue[queueNum])){++queueNum; continue;}
-
-    tcb* currTCB = peek(&threadQueue[queueNum]);
-	currentThreadTNum = currTCB->TID;
-	currentThreadQNum = queueNum;
-    setcontext(&currTCB->context);
-        ++queueNum;
+		if (isQueueEmpty(&threadQueue[queueNum])){queueNum++; continue;}
+        tcb* currTCB = peek(&threadQueue[queueNum]);
+        currentThreadTNum = currTCB->TID;
+        currentThreadQNum = queueNum;
+        setcontext(&currTCB->context);
+        queueNum++;
     }
 }
 
 //DO NOT MODIFY THIS FUNCTION
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void) {
-
        fprintf(stderr, "Total context switches %ld \n", tot_cntx_switches);
        fprintf(stderr, "Average turnaround time %lf \n", avg_turn_time);
        fprintf(stderr, "Average response time  %lf \n", avg_resp_time);
 }
 
 void timer_handler(int signum) {
-
-    // setupTimer expired, schedule next thread
     if (currentThreadTNum != SCHEDULER_THREAD) {
         swapcontext(&getFromHashMap(map, currentThreadTNum)->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
         if(getFromHashMap(map, SCHEDULER_THREAD)->beenScheduledOnce == 0){
@@ -351,10 +293,10 @@ void timer_handler(int signum) {
         }
         tot_cntx_switches++;
     }
-
 }
+
 void setupTimer() {
-    struct itimerval it_val;	/* for setting itimer */
+    struct itimerval it_val;	
     if (signal(SIGALRM, timer_handler) == SIG_ERR) {
         exit(1);
     }
@@ -370,6 +312,7 @@ void setupTimer() {
         isTimerFiredOnce = 1;
     }
 }
+
 void stopTimer() {
     struct itimerval it_val;
     it_val.it_interval.tv_usec = 0;
@@ -380,15 +323,14 @@ void stopTimer() {
 }
 
 void startTimer() {
-    struct itimerval it_val;	/* for setting itimer */
-    it_val.it_value.tv_sec =     QUANTUM/1000;
-    it_val.it_value.tv_usec =    (QUANTUM*1000) % 1000000;
+    struct itimerval it_val;	
+    it_val.it_value.tv_sec = QUANTUM/1000;
+    it_val.it_value.tv_usec = (QUANTUM*1000) % 1000000;
     it_val.it_interval = it_val.it_value;
     if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
         exit(1);
     }
 }
-
 
 void createContext(ucontext_t* threadContext) {
     getcontext(threadContext);
@@ -396,7 +338,6 @@ void createContext(ucontext_t* threadContext) {
     threadContext->uc_stack.ss_sp = malloc(STACK_SIZE);
     threadContext->uc_stack.ss_size = STACK_SIZE;
     threadContext->uc_stack.ss_flags = 0;
-
     if (threadContext->uc_stack.ss_sp == NULL) {
         exit(1);
     }
@@ -442,20 +383,16 @@ void enqueue(Queue* queue, tcb* thread) {
     if (queue == NULL) {
         return;
     }
-
     Node* temp = (struct Node*)malloc(sizeof(struct Node));
     if (!temp) {
         exit(EXIT_FAILURE);
     }
-
     temp->data = thread;
-
     if (queue->back == NULL) {
         queue->front = queue->back = temp;
         ++(queue->queueSize);
         return;
     }
-
     queue->back->next = temp;
     queue->back = temp;
     queue->back->next = NULL;
@@ -466,15 +403,12 @@ tcb* dequeue(Queue* queue) {
     if (queue->front == NULL) {
         return NULL;
     }
-
     Node* temp = queue->front;
     tcb* popped = temp->data;
     queue->front = queue->front->next;
-
     if (queue->front == NULL) {
         queue->back = NULL;
     }
-
     free(temp);
     --(queue->queueSize);
     return popped;
@@ -509,15 +443,12 @@ void initHashMap(struct HashMap *map) {
     map->hashMapCapacity = 300;
     map->hashMapSize = 0;
     map->arr = (struct HNode **)malloc(map->hashMapCapacity * sizeof(struct HNode *));
-    
     for (int i = 0; i < map->hashMapCapacity; i++) {
         map->arr[i] = NULL;
     }
-
     map->dummy = (struct HNode *)malloc(sizeof(struct HNode));
     map->dummy->key = -1;
     map->dummy->value = NULL;
-
     map->initialized = 1;
 }
 
@@ -525,39 +456,31 @@ void put(struct HashMap *map, int key, tcb* value) {
     struct HNode *temp = (struct HNode *)malloc(sizeof(struct HNode));
     temp->key = key;
     temp->value = value;
-
     int hashIndex = hash(map, key);
-
     while (map->arr[hashIndex] != NULL && map->arr[hashIndex]->key != key && map->arr[hashIndex]->key != -1) {
         ++hashIndex;
         hashIndex %= map->hashMapCapacity;
     }
-
     if (map->arr[hashIndex] == NULL || map->arr[hashIndex]->key == -1) {
         map->hashMapSize++;
     }
-
     map->arr[hashIndex] = temp;
 }
 
 tcb* getFromHashMap(struct HashMap *map, int key) {
     int hashIndex = hash(map, key);
     int counter = 0;
-
     while (map->arr[hashIndex] != NULL) {
         int counter = 0;
         if (counter++ > map->hashMapCapacity) {
             return NULL;
         }
-
         if (map->arr[hashIndex]->key == key) {
             return map->arr[hashIndex]->value;
         }
-
         hashIndex++;
         hashIndex %= map->hashMapCapacity;
     }
-
     return NULL;
 }
 
