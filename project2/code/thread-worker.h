@@ -50,6 +50,7 @@ typedef struct TCB {
 	int elapsed;
 	struct timeval start_time;
 	struct timeval end_time;
+	int beenScheduledOnce;
 } tcb; 
 
 typedef struct Node{
