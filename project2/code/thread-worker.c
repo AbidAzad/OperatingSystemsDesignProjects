@@ -83,7 +83,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
         isSchedCreated = 1;
         setupTimer();
     } else {
-    enqueue(&threadQueue[0], newThread);
+        enqueue(&threadQueue[0], newThread);
     }
     return 0;
 }
@@ -185,7 +185,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
     if(getFromHashMap(map, currentThreadTNum)->TID != mutex->owner) {
         exit(1);
     }
-    if(isQueueEmpty(&(mutex->threadQueue))) {
+    if(!isQueueEmpty(&(mutex->threadQueue))) {
         for (int i = 0; i < queueSize(&(mutex->threadQueue)); i++) {
             tcb* x = queueGet(&(mutex->threadQueue), i);
             getFromHashMap(map, x->TID)->status = READY;
