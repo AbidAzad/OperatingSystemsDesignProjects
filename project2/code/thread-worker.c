@@ -12,17 +12,17 @@ long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
 
-#define SCHEDULER_THREAD 0
-#define MAIN_THREAD 1
-#define QUEUE_NUM 4
+#define SCHEDULER 0
+#define MAIN 1
+#define LEVEL 4
 #define QUANTUM 10
 int threadCounter = 2; 
-Queue threadQueue[QUEUE_NUM];
+Queue threadQueue[LEVEL];
 int started = 1;
 HashMap *map = NULL;
 int isSchedCreated = 0;
 int isYielding = 0;
-uint currentThreadTNum = MAIN_THREAD;
+uint currentThreadTNum = MAIN;
 int currentThreadQNum=0;
 enum sched_options {psjf, mlfq};
 #ifndef MLFQ
@@ -36,7 +36,7 @@ int scheduledThreads = 0;
 // create a new thread 
 int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {	
     if(started){
-        for(int i = 0; i<QUEUE_NUM;i++){
+        for(int i = 0; i<LEVEL;i++){
             initializeQueue(&threadQueue[i]);
         }
         started=0;
@@ -71,14 +71,14 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
         schedTCB->beenScheduledOnce = 0;
         createContext(&schedTCB->context);
         makecontext(&schedTCB->context, (void (*)()) &schedule, 0);
-        put(map, SCHEDULER_THREAD, schedTCB);
+        put(map, SCHEDULER, schedTCB);
         tcb* mainTCB = (tcb*) malloc(sizeof(tcb));
         mainTCB->TID = 1;
         mainTCB->status = READY;
         gettimeofday(&mainTCB->start_time, NULL);
         mainTCB->beenScheduledOnce = 0;
-        put(map, MAIN_THREAD, mainTCB);
-        enqueue(&threadQueue[0], getFromHashMap(map, MAIN_THREAD));
+        put(map, MAIN, mainTCB);
+        enqueue(&threadQueue[0], getFromHashMap(map, MAIN));
         enqueue(&threadQueue[0], newThread);
         isSchedCreated = 1;
         setupTimer();
@@ -94,7 +94,7 @@ void worker_start(tcb *currTCB, void (*function)(void *), void *arg) {
     function(arg); 
     currTCB->status = FINISHED;
     free(currTCB->context.uc_stack.ss_sp);
-    setcontext(&getFromHashMap(map, SCHEDULER_THREAD)->context);
+    setcontext(&getFromHashMap(map, SCHEDULER)->context);
 }
 
 /* give CPU possession to other user-level worker threads voluntarily */
@@ -108,7 +108,7 @@ int worker_yield() {
     currTCB->elapsed += QUANTUM;
     currTCB->status = READY;
     isYielding = 1;
-    swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
+    swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER)->context);
 	tot_cntx_switches++;
 	return 0;
 };
@@ -128,7 +128,7 @@ void worker_exit(void *value_ptr) {
     avg_turn_time = ((avg_turn_time * completedThreads + ((double)(((double)(currTCB->end_time.tv_sec - currTCB->start_time.tv_sec) * 1000) + ((double)(currTCB->end_time.tv_usec - currTCB->start_time.tv_usec)) / 1000))) / (completedThreads + 1));
     completedThreads++;
     currTCB->status = FINISHED;
-    setcontext(&getFromHashMap(map, SCHEDULER_THREAD)->context);	
+    setcontext(&getFromHashMap(map, SCHEDULER)->context);	
 };
 
 /* Wait for thread termination */
@@ -142,7 +142,7 @@ int worker_join(worker_t thread, void **value_ptr) {
     if (joinedTCB->status != FINISHED) {
         joinedTCB->joiningThread = currTCB->TID;
         currTCB->status = BLOCKED_JOIN;
-        swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
+        swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER)->context);
         tot_cntx_switches++;    
     }
     if(value_ptr != NULL) {
@@ -170,7 +170,7 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 			tcb* currTCB = getFromHashMap(map, currentThreadTNum);
 			enqueue(&(mutex->threadQueue), currTCB);
 			currTCB->status = BLOCKED_MUTEX;
-			swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
+			swapcontext(&currTCB->context, &getFromHashMap(map, SCHEDULER)->context);
             tot_cntx_switches++;
         }
 		mutex->owner = getFromHashMap(map, currentThreadTNum)->TID;
@@ -264,7 +264,7 @@ static void sched_mlfq() {
     }
     isYielding = 0;
     int queueNum = 0;
-    while (queueNum < QUEUE_NUM) {
+    while (queueNum < LEVEL) {
 		if (isQueueEmpty(&threadQueue[queueNum])){queueNum++; continue;}
         tcb* currTCB = peek(&threadQueue[queueNum]);
         currentThreadTNum = currTCB->TID;
@@ -283,13 +283,13 @@ void print_app_stats(void) {
 }
 
 void timer_handler(int signum) {
-    if (currentThreadTNum != SCHEDULER_THREAD) {
-        swapcontext(&getFromHashMap(map, currentThreadTNum)->context, &getFromHashMap(map, SCHEDULER_THREAD)->context);
-        if(getFromHashMap(map, SCHEDULER_THREAD)->beenScheduledOnce == 0){
-            gettimeofday(&getFromHashMap(map, SCHEDULER_THREAD)->end_time, NULL);
-            avg_resp_time = ((avg_resp_time * scheduledThreads + ((double)(((double)(getFromHashMap(map, SCHEDULER_THREAD)->end_time.tv_sec - getFromHashMap(map, SCHEDULER_THREAD)->start_time.tv_sec) * 1000) + ((double)(getFromHashMap(map, SCHEDULER_THREAD)->end_time.tv_usec - getFromHashMap(map, SCHEDULER_THREAD)->start_time.tv_usec) / 1000)))) / (scheduledThreads + 1));
+    if (currentThreadTNum != SCHEDULER) {
+        swapcontext(&getFromHashMap(map, currentThreadTNum)->context, &getFromHashMap(map, SCHEDULER)->context);
+        if(getFromHashMap(map, SCHEDULER)->beenScheduledOnce == 0){
+            gettimeofday(&getFromHashMap(map, SCHEDULER)->end_time, NULL);
+            avg_resp_time = ((avg_resp_time * scheduledThreads + ((double)(((double)(getFromHashMap(map, SCHEDULER)->end_time.tv_sec - getFromHashMap(map, SCHEDULER)->start_time.tv_sec) * 1000) + ((double)(getFromHashMap(map, SCHEDULER)->end_time.tv_usec - getFromHashMap(map, SCHEDULER)->start_time.tv_usec) / 1000)))) / (scheduledThreads + 1));
             scheduledThreads++;
-            getFromHashMap(map, SCHEDULER_THREAD)->beenScheduledOnce = 1;
+            getFromHashMap(map, SCHEDULER)->beenScheduledOnce = 1;
         }
         tot_cntx_switches++;
     }
@@ -344,7 +344,7 @@ void createContext(ucontext_t* threadContext) {
 }
 
 int isLastQueue(int queueNum) {
-    return queueNum >= QUEUE_NUM-1;
+    return queueNum >= LEVEL-1;
 }
 
 int isThreadInactive(int queueNum) {
