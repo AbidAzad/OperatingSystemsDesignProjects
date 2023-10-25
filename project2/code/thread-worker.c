@@ -24,11 +24,11 @@ int isSchedCreated = 0;
 int isYielding = 0;
 uint currentThreadTNum = MAIN_THREAD;
 int currentThreadQNum=0;
-enum sched_options {_PSJF, _MLFQ};
+enum sched_options {psjf, mlfq};
 #ifndef MLFQ
-	int SCHED_TYPE = _PSJF;
+	int SCHED = psjf;
 #else 
-	int SCHED_TYPE = _MLFQ;
+	int SCHED = mlfq;
 #endif
 int completedThreads = 0;
 int scheduledThreads = 0;
@@ -207,9 +207,9 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 /* scheduler */
 static void schedule() {
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
-	 if (SCHED_TYPE == _PSJF)
+	 if (SCHED == psjf)
 			sched_psjf();
-	 else if (SCHED_TYPE == _MLFQ)
+	 else if (SCHED == mlfq)
 	 		sched_mlfq();
 }
 
@@ -296,38 +296,38 @@ void timer_handler(int signum) {
 }
 
 void setupTimer() {
-    struct itimerval it_val;	
+    struct itimerval timer;	
     if (signal(SIGALRM, timer_handler) == SIG_ERR) {
         exit(1);
     }
-    it_val.it_value.tv_sec = QUANTUM/1000;
-    it_val.it_value.tv_usec = (QUANTUM*1000) % 1000000;
-    it_val.it_interval = it_val.it_value;
-    if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
+    timer.it_value.tv_sec = QUANTUM/1000;
+    timer.it_value.tv_usec = (QUANTUM*1000) % 1000000;
+    timer.it_interval = timer.it_value;
+    if (setitimer(ITIMER_REAL, &timer, NULL) == -1) {
         exit(1);
     }
-    int isTimerFiredOnce = 0;
-    while (!isTimerFiredOnce) {
+    int started = 0;
+    while (!started) {
         pause();
-        isTimerFiredOnce = 1;
+        started = 1;
     }
 }
 
 void stopTimer() {
-    struct itimerval it_val;
-    it_val.it_interval.tv_usec = 0;
-    it_val.it_interval.tv_sec = 0;
-    it_val.it_value.tv_usec = 0;
-    it_val.it_value.tv_sec = 0;
-    setitimer(ITIMER_REAL, &it_val, NULL);
+    struct itimerval timer;
+    timer.it_interval.tv_usec = 0;
+    timer.it_interval.tv_sec = 0;
+    timer.it_value.tv_usec = 0;
+    timer.it_value.tv_sec = 0;
+    setitimer(ITIMER_REAL, &timer, NULL);
 }
 
 void startTimer() {
-    struct itimerval it_val;	
-    it_val.it_value.tv_sec = QUANTUM/1000;
-    it_val.it_value.tv_usec = (QUANTUM*1000) % 1000000;
-    it_val.it_interval = it_val.it_value;
-    if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
+    struct itimerval timer;	
+    timer.it_value.tv_sec = QUANTUM/1000;
+    timer.it_value.tv_usec = (QUANTUM*1000) % 1000000;
+    timer.it_interval = timer.it_value;
+    if (setitimer(ITIMER_REAL, &timer, NULL) == -1) {
         exit(1);
     }
 }
