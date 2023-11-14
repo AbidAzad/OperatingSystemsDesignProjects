@@ -14,6 +14,7 @@
         "vector": "c",
         "limits.h": "c",
         "bitset": "c",
-        "system_error": "c"
+        "system_error": "c",
+        "chrono": "c"
     }
 }

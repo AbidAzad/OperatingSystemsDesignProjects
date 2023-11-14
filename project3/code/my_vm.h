@@ -3,11 +3,13 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
-
+#include<pthread.h> 
+#include <string.h>
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
 
 //Add any important includes here which you may need
+
 
 #define PGSIZE 4096
 
@@ -31,9 +33,15 @@ struct tlb {
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
+    pte_t virtualPage[TLB_ENTRIES];
+    pte_t physicalPage[TLB_ENTRIES];
+    int lastAccessed[TLB_ENTRIES];
+    int usedEntries;
 
 };
-struct tlb tlb_store;
+typedef struct directoryBitMap{
+	pte_t *pageTable;
+} directoryBitMap;
 
 
 void set_physical_mem();
@@ -47,5 +55,5 @@ int put_value(void *va, void *val, int size);
 void get_value(void *va, void *val, int size);
 void mat_mult(void *mat1, void *mat2, int size, void *answer);
 void print_TLB_missrate();
-
+unsigned long bitConversion(unsigned long va, unsigned long bitNum, unsigned long pos); 
 #endif
