@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include<pthread.h> 
+#include <math.h> 
 #include <string.h>
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
@@ -55,5 +56,5 @@ int put_value(void *va, void *val, int size);
 void get_value(void *va, void *val, int size);
 void mat_mult(void *mat1, void *mat2, int size, void *answer);
 void print_TLB_missrate();
-unsigned long bitConversion(unsigned long va, unsigned long bitNum, unsigned long pos); 
+unsigned long performBitmask(unsigned long page, double shift, double offset, pde_t address);
 #endif
