@@ -13,7 +13,9 @@ unsigned char * virtBitmap;
 double offset;
 double outerPage; 
 double innerPage; 
-struct tlb tlb_store;
+struct tlb my_tlb = { .size = 0, .front = 0, .rear = 0, .misses = 0, .accesses = 0 };
+struct tlb *tlb_store = &my_tlb; 
+
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -23,7 +25,6 @@ void set_physical_mem() {
     //your memory you are simulating
 
     physicalMemory = (unsigned char *) malloc(sizeof(unsigned char) * MEMSIZE);
-    
     //HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
 
@@ -49,6 +50,7 @@ void set_physical_mem() {
 	for(int i=0; i<outerPage; i++) {
 		pageTable[i] = (pte_t *) malloc(sizeof(pte_t) * innerPage);
 	}
+
 }
 
 
@@ -61,8 +63,20 @@ add_TLB(void *va, void *pa)
 {
 
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
+    if (tlb_store->size == TLB_ENTRIES) {
+        // TLB is full, remove the oldest entry
+        tlb_store->front = (tlb_store->front + 1) % TLB_ENTRIES;
+        tlb_store->size--;
+    }
 
-    return -1;
+    // Insert the new entry at the rear
+    tlb_store->entries[tlb_store->rear].va = va;
+    tlb_store->entries[tlb_store->rear].pa = pa;
+    
+    tlb_store->rear = (tlb_store->rear + 1) % TLB_ENTRIES;
+    tlb_store->size++;
+    tlb_store->accesses++;
+    return 0;
 }
 
 
@@ -75,7 +89,14 @@ pte_t *
 check_TLB(void *va) {
 
     /* Part 2: TLB lookup code here */
-
+    for (int i = 0; i < tlb_store->size; i++) {
+        int index = (tlb_store->front + i) % TLB_ENTRIES;
+        if (tlb_store->entries[index].va == va) {
+            return tlb_store->entries[index].pa;
+        }
+    }
+    tlb_store->misses++;
+    return NULL; // Not found
 }
 
 
@@ -91,7 +112,9 @@ print_TLB_missrate()
     /*Part 2 Code here to calculate and print the TLB miss rate*/
 
 
-
+    if (tlb_store->accesses > 0) {
+        miss_rate = (double) tlb_store->misses / (double) tlb_store->accesses;
+    }
 
     fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
 }
@@ -106,8 +129,10 @@ pte_t *translate(pde_t *pgdir, void *va) {
     /* Part 1 HINT: Get the Page directory index (1st level) Then get the
     * 2nd-level-page table index using the virtual address.  Using the page
     * directory index and page table index get the physical address.*/
-
-
+    pte_t *translation = check_TLB(va);
+    if(translation != NULL){
+        return translation;
+    }
 
 	pde_t address = (pde_t) va; 
 	pde_t outer = 0xFFFFFFFF; 
@@ -115,7 +140,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 
     inner = performBitmask(inner, innerPage, offset, address);
     outer = performBitmask(outer, outerPage, innerPage + offset, address);
-	
+	add_TLB(va,  (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE));
 	return (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE);
 
     /* Part 2 HINT: Check the TLB before performing the translation. If
@@ -140,14 +165,23 @@ int page_map(pde_t *pgdir, void *va, void *pa){
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 
-	pde_t v_addr = (pde_t) va; //get the virtual address
-    pde_t inner = performBitmask(0xFFFFFFFF, innerPage, offset, v_addr);
-    pte_t outer = performBitmask(0xFFFFFFFF, outerPage, innerPage + offset, v_addr);
+    pde_t address = (pde_t) va; //get the virtual address
+    pde_t inner = performBitmask(0xFFFFFFFF, innerPage, offset, address);
+    pde_t outer = performBitmask(0xFFFFFFFF, outerPage, innerPage + offset, address);
+    
+    pte_t map = (pde_t) pa;
+    map >>= (int) offset;
 
-	
-	pte_t map = (pde_t) pa;
-	map >>= (int) offset;
-	pageTable[pgdir[outer]][inner] = map;
+    // Check if the page table for the outer page is not allocated, allocate it
+    if (pageTable[pgdir[outer]] == NULL) {
+        pageTable[pgdir[outer]] = (pte_t *)malloc(sizeof(pte_t) * innerPage);
+        for (int i = 0; i < innerPage; i++) {
+            pageTable[pgdir[outer]][i] = map; // Initialize page table entries to 0
+        }
+    }
+
+        pageTable[pgdir[outer]][inner] = map;
+
 }
 
 
@@ -252,6 +286,23 @@ void t_free(void *va, int size) {
 	/*
      * Part 2: Also, remove the translation from the TLB
      */
+    for (int i = 0; i < tlb_store->size; i++) {
+        int index = (tlb_store->front + i) % TLB_ENTRIES;
+        if (tlb_store->entries[index].va == va) {
+            // Found the entry, remove it by shifting elements
+            for (int j = i; j < tlb_store->size - 1; j++) {
+                int current_index = (tlb_store->front + j) % TLB_ENTRIES;
+                int next_index = (tlb_store->front + j + 1) % TLB_ENTRIES;
+                tlb_store->entries[current_index] = tlb_store->entries[next_index];
+            }
+
+            // Adjust front, rear, and size
+            tlb_store->rear = (tlb_store->rear - 1 + TLB_ENTRIES) % TLB_ENTRIES;
+            tlb_store->size--;
+
+            return; // Entry removed
+        }
+    }
 }
 
 

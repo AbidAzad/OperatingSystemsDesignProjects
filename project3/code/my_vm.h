@@ -29,20 +29,20 @@ typedef unsigned long pde_t;
 #define TLB_ENTRIES 512
 
 //Structure to represents TLB
-struct tlb {
-    /*Assume your TLB is a direct mapped TLB with number of entries as TLB_ENTRIES
-    * Think about the size of each TLB entry that performs virtual to physical
-    * address translation.
-    */
-    pte_t virtualPage[TLB_ENTRIES];
-    pte_t physicalPage[TLB_ENTRIES];
-    int lastAccessed[TLB_ENTRIES];
-    int usedEntries;
 
+struct tlb_entry {
+    void *va;
+    void *pa;
 };
-typedef struct directoryBitMap{
-	pte_t *pageTable;
-} directoryBitMap;
+
+struct tlb {
+    struct tlb_entry entries[TLB_ENTRIES];
+    int size;
+    int front;
+    int rear;
+    int misses;
+    int accesses;
+};
 
 
 void set_physical_mem();

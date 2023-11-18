@@ -15,6 +15,8 @@
         "limits.h": "c",
         "bitset": "c",
         "system_error": "c",
-        "chrono": "c"
+        "chrono": "c",
+        "string_view": "c",
+        "initializer_list": "c"
     }
 }
