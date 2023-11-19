@@ -45,6 +45,7 @@ struct tlb {
 };
 
 
+
 void set_physical_mem();
 pte_t* translate(pde_t *pgdir, void *va);
 int page_map(pde_t *pgdir, void *va, void* pa);

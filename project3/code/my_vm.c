@@ -1,5 +1,6 @@
 #include "my_vm.h"
-pthread_mutex_t lock;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t secondLock = PTHREAD_MUTEX_INITIALIZER;
 pde_t * pageDir;
 pte_t ** pageTable;
 pte_t frame = 0;
@@ -13,8 +14,8 @@ unsigned char * virtBitmap;
 double offset;
 double outerPage; 
 double innerPage; 
-struct tlb my_tlb = { .size = 0, .front = 0, .rear = 0, .misses = 0, .accesses = 0 };
-struct tlb *tlb_store = &my_tlb; 
+struct tlb tlb_store = { .size = 0, .front = 0, .rear = 0, .misses = 0, .accesses = 0 };
+
 
 /*
 Function responsible for allocating and setting your physical memory 
@@ -49,6 +50,7 @@ void set_physical_mem() {
 	pageTable = (pte_t **) malloc(sizeof(pte_t *) * outerPage);
 	for(int i=0; i<outerPage; i++) {
 		pageTable[i] = (pte_t *) malloc(sizeof(pte_t) * innerPage);
+        
 	}
 
 }
@@ -58,24 +60,27 @@ void set_physical_mem() {
  * Part 2: Add a virtual to physical page translation to the TLB.
  * Feel free to extend the function arguments or return type.
  */
+pthread_mutex_t tlbLock = PTHREAD_MUTEX_INITIALIZER;
+
 int
 add_TLB(void *va, void *pa)
 {
-
+    pthread_mutex_lock(&tlbLock);
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
-    if (tlb_store->size == TLB_ENTRIES) {
+    if (tlb_store.size == TLB_ENTRIES) {
         // TLB is full, remove the oldest entry
-        tlb_store->front = (tlb_store->front + 1) % TLB_ENTRIES;
-        tlb_store->size--;
+        tlb_store.front = (tlb_store.front + 1) % TLB_ENTRIES;
+        tlb_store.size--;
     }
 
     // Insert the new entry at the rear
-    tlb_store->entries[tlb_store->rear].va = va;
-    tlb_store->entries[tlb_store->rear].pa = pa;
+    tlb_store.entries[tlb_store.rear].va = va;
+    tlb_store.entries[tlb_store.rear].pa = pa;
     
-    tlb_store->rear = (tlb_store->rear + 1) % TLB_ENTRIES;
-    tlb_store->size++;
-    tlb_store->accesses++;
+    tlb_store.rear = (tlb_store.rear + 1) % TLB_ENTRIES;
+    tlb_store.size++;
+    tlb_store.accesses++;
+    pthread_mutex_unlock(&tlbLock);
     return 0;
 }
 
@@ -89,13 +94,16 @@ pte_t *
 check_TLB(void *va) {
 
     /* Part 2: TLB lookup code here */
-    for (int i = 0; i < tlb_store->size; i++) {
-        int index = (tlb_store->front + i) % TLB_ENTRIES;
-        if (tlb_store->entries[index].va == va) {
-            return tlb_store->entries[index].pa;
+    pthread_mutex_lock(&tlbLock);
+    for (int i = 0; i < tlb_store.size; i++) {
+        int index = (tlb_store.front + i) % TLB_ENTRIES;
+        if (tlb_store.entries[index].va == va) {
+            pthread_mutex_unlock(&tlbLock);
+            return tlb_store.entries[index].pa;
         }
     }
-    tlb_store->misses++;
+    tlb_store.misses++;
+    pthread_mutex_unlock(&tlbLock);
     return NULL; // Not found
 }
 
@@ -112,8 +120,8 @@ print_TLB_missrate()
     /*Part 2 Code here to calculate and print the TLB miss rate*/
 
 
-    if (tlb_store->accesses > 0) {
-        miss_rate = (double) tlb_store->misses / (double) tlb_store->accesses;
+    if (tlb_store.accesses > 0) {
+        miss_rate = (double) tlb_store.misses / (double) tlb_store.accesses;
     }
 
     fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
@@ -140,6 +148,9 @@ pte_t *translate(pde_t *pgdir, void *va) {
 
     inner = performBitmask(inner, innerPage, offset, address);
     outer = performBitmask(outer, outerPage, innerPage + offset, address);
+    if (pageTable[pgdir[outer]] == NULL) {
+        return NULL; // Page table not allocated, return NULL
+    }
 	add_TLB(va,  (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE));
 	return (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE);
 
@@ -148,8 +159,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     */
 
 
-    //If translation not successfull
-    //return NULL; 
+
 }
 
 
@@ -159,12 +169,13 @@ as an argument, and sets a page table entry. This function will walk the page
 directory to see if there is an existing mapping for a virtual address. If the
 virtual address is not present, then a new entry will be added
 */
+pthread_mutex_t pageMapLock = PTHREAD_MUTEX_INITIALIZER;
 int page_map(pde_t *pgdir, void *va, void *pa){
 
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-
+    pthread_mutex_lock(&pageMapLock);
     pde_t address = (pde_t) va; //get the virtual address
     pde_t inner = performBitmask(0xFFFFFFFF, innerPage, offset, address);
     pde_t outer = performBitmask(0xFFFFFFFF, outerPage, innerPage + offset, address);
@@ -172,15 +183,13 @@ int page_map(pde_t *pgdir, void *va, void *pa){
     pte_t map = (pde_t) pa;
     map >>= (int) offset;
 
-    // Check if the page table for the outer page is not allocated, allocate it
-    if (pageTable[pgdir[outer]] == NULL) {
+  if (pageTable[pgdir[outer]] == NULL) 
         pageTable[pgdir[outer]] = (pte_t *)malloc(sizeof(pte_t) * innerPage);
-        for (int i = 0; i < innerPage; i++) {
-            pageTable[pgdir[outer]][i] = map; // Initialize page table entries to 0
-        }
-    }
+
+    
 
         pageTable[pgdir[outer]][inner] = map;
+    pthread_mutex_unlock(&pageMapLock);
 
 }
 
@@ -188,6 +197,7 @@ int page_map(pde_t *pgdir, void *va, void *pa){
 /*Function that gets the next available page
 */
 void *get_next_avail(int num_pages) {
+    pthread_mutex_lock(&pageMapLock);
    pte_t current_page = freePage;
    pte_t start_page = freePage;
 
@@ -204,10 +214,11 @@ void *get_next_avail(int num_pages) {
       freePage = (freePage + 1) % numVirtPages;
 
       if (freePage == start_page) {
+         pthread_mutex_unlock(&pageMapLock);
           return NULL;
       }
    }
-
+pthread_mutex_unlock(&pageMapLock);
    return (void *)&freePage;
 }
 
@@ -232,6 +243,10 @@ void *t_malloc(unsigned int num_bytes) {
 		set_physical_mem();
 	
     pte_t * page = (pte_t *) get_next_avail((num_bytes / PGSIZE) + 1);
+    if (page == NULL) {
+        pthread_mutex_unlock(&lock);
+        return NULL;
+    }
     for (int i = 0; i < (num_bytes / PGSIZE) + 1; i++) {
         unsigned char virt_mask = 0x80 >> ((*page + i) % 8);
         virtBitmap[(*page + i) / 8] |= virt_mask;
@@ -283,26 +298,28 @@ void t_free(void *va, int size) {
         frame = (frame + 1) % numPhysPages;
 	}
 	pthread_mutex_unlock(&lock);
+    pthread_mutex_lock(&tlbLock);
 	/*
      * Part 2: Also, remove the translation from the TLB
      */
-    for (int i = 0; i < tlb_store->size; i++) {
-        int index = (tlb_store->front + i) % TLB_ENTRIES;
-        if (tlb_store->entries[index].va == va) {
+    for (int i = 0; i < tlb_store.size; i++) {
+        int index = (tlb_store.front + i) % TLB_ENTRIES;
+        if (tlb_store.entries[index].va == va) {
             // Found the entry, remove it by shifting elements
-            for (int j = i; j < tlb_store->size - 1; j++) {
-                int current_index = (tlb_store->front + j) % TLB_ENTRIES;
-                int next_index = (tlb_store->front + j + 1) % TLB_ENTRIES;
-                tlb_store->entries[current_index] = tlb_store->entries[next_index];
+            for (int j = i; j < tlb_store.size - 1; j++) {
+                int current_index = (tlb_store.front + j) % TLB_ENTRIES;
+                int next_index = (tlb_store.front + j + 1) % TLB_ENTRIES;
+                tlb_store.entries[current_index] = tlb_store.entries[next_index];
             }
 
             // Adjust front, rear, and size
-            tlb_store->rear = (tlb_store->rear - 1 + TLB_ENTRIES) % TLB_ENTRIES;
-            tlb_store->size--;
-
+            tlb_store.rear = (tlb_store.rear - 1 + TLB_ENTRIES) % TLB_ENTRIES;
+            tlb_store.size--;
+            pthread_mutex_unlock(&tlbLock);
             return; // Entry removed
         }
     }
+    pthread_mutex_unlock(&tlbLock);
 }
 
 
@@ -317,6 +334,10 @@ int put_value(void *va, void *val, int size) {
      * function.
      */
     pthread_mutex_lock(&lock);
+    if(translate(pageDir, va) == NULL){
+        pthread_mutex_unlock(&lock);
+    return -1;
+    }
 	unsigned int pages = (size / PGSIZE) + 1;
     for (int i = 0; i < pages; i++) {
        int copy_size = (i == (pages - 1)) ? size % PGSIZE : PGSIZE;
@@ -330,6 +351,10 @@ int put_value(void *va, void *val, int size) {
 /*Given a virtual address, this function copies the contents of the page to val*/
 void get_value(void *va, void *val, int size) {
     pthread_mutex_lock(&lock);
+        if(translate(pageDir, va) == NULL){
+        pthread_mutex_unlock(&lock);
+    return;
+    }
     unsigned int pages = (size / PGSIZE) + 1;
     for (int i = 0; i < pages; i++) {
        void* pa = translate(pageDir, va);
@@ -342,6 +367,7 @@ void get_value(void *va, void *val, int size) {
 }
 
 void mat_mult(void *mat1, void *mat2, int size, void *answer) {
+    pthread_mutex_lock(&secondLock);
 
     /* Hint: You will index as [i * size + j] where  "i, j" are the indices of the
      * matrix accessed. Similar to the code in test.c, you will use get_value() to
@@ -373,6 +399,8 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
             res = 0;
         }
     }
+        pthread_mutex_unlock(&secondLock);
+
    
 }
 unsigned long performBitmask(unsigned long page, double shift, double offset, pde_t address) { 
