@@ -336,28 +336,23 @@ void get_value(void *va, void *val, int size) {
 
 void mat_mult(void *mat1, void *mat2, int size, void *answer) {
     pthread_mutex_lock(&secondLock);
-
-     int i=0, j=0, k=0;
-    for (i = 0; i < size; ++i) {
-        for (j = 0; j < size; ++j) {
-		int a = 0;
-		put_value(answer + (i*size*sizeof(int)) + (j*sizeof(int)), &a, sizeof(int));
-        }
-    }
-
-	// Multiplying first and second matrices and storing in mult.
-	int res =0;
-    for (i = 0; i < size; ++i) {
-        for (j = 0; j < size; ++j) {
-            for (k = 0; k < size; ++k) {
-		int first, second, prev;
-		get_value(mat1 + (i*size*sizeof(int)) + (k*sizeof(int)), &first, sizeof(int));
-		get_value(mat2 + (k*size*sizeof(int)) + (j*sizeof(int)), &second, sizeof(int));
-
-		res+=(first*second);
+    int x, y, val_size = sizeof(int);
+    int i, j, k;
+    for (i = 0; i < size; i++) {
+        for(j = 0; j < size; j++) {
+            unsigned int a, b, c = 0;
+            for (k = 0; k < size; k++) {
+                int address_a = (unsigned int)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
+                int address_b = (unsigned int)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
+                get_value( (void *)address_a, &a, sizeof(int));
+                get_value( (void *)address_b, &b, sizeof(int));
+                 printf("Values at the index: %d, %d, %d, %d, %d\n", 
+                     a, b, size, (i * size + k), (k * size + j));
+                c += (a * b);
             }
-            put_value(answer + (i*size*sizeof(int)) + (j*sizeof(int)), &res, sizeof(int));
-            res = 0;
+            int address_c = (unsigned int)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
+            // printf("This is the c: %d, address: %x!\n", c, address_c);
+            put_value((void *)address_c, (void *)&c, sizeof(int));
         }
     }
         pthread_mutex_unlock(&secondLock);
