@@ -1,6 +1,8 @@
 #include "my_vm.h"
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t secondLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t translateLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t memLock = PTHREAD_MUTEX_INITIALIZER;
 pde_t * pageDir;
 pte_t ** pageTable;
 pte_t frame = 0;
@@ -24,7 +26,7 @@ void set_physical_mem() {
 
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
-
+    pthread_mutex_lock(&memLock);
     physicalMemory = (unsigned char *) malloc(sizeof(unsigned char) * MEMSIZE);
     //HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
@@ -52,7 +54,7 @@ void set_physical_mem() {
 		pageTable[i] = (pte_t *) malloc(sizeof(pte_t) * innerPage);
         
 	}
-
+    pthread_mutex_unlock(&memLock);
 }
 
 
@@ -137,11 +139,13 @@ pte_t *translate(pde_t *pgdir, void *va) {
     /* Part 1 HINT: Get the Page directory index (1st level) Then get the
     * 2nd-level-page table index using the virtual address.  Using the page
     * directory index and page table index get the physical address.*/
+   pthread_mutex_lock(&translateLock);
     pte_t *translation = check_TLB(va);
     if(translation != NULL){
+        pthread_mutex_unlock(&translateLock);
         return translation;
     }
-
+    
 	pde_t address = (pde_t) va; 
 	pde_t outer = 0xFFFFFFFF; 
 	pte_t inner = 0xFFFFFFFF;
@@ -152,6 +156,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
         return NULL; // Page table not allocated, return NULL
     }
 	add_TLB(va,  (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE));
+    pthread_mutex_unlock(&translateLock);
 	return (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE);
 
     /* Part 2 HINT: Check the TLB before performing the translation. If
@@ -218,7 +223,7 @@ void *get_next_avail(int num_pages) {
           return NULL;
       }
    }
-pthread_mutex_unlock(&pageMapLock);
+    pthread_mutex_unlock(&pageMapLock);
    return (void *)&freePage;
 }
 
@@ -297,8 +302,7 @@ void t_free(void *va, int size) {
 
         frame = (frame + 1) % numPhysPages;
 	}
-	pthread_mutex_unlock(&lock);
-    pthread_mutex_lock(&tlbLock);
+
 	/*
      * Part 2: Also, remove the translation from the TLB
      */
@@ -315,11 +319,11 @@ void t_free(void *va, int size) {
             // Adjust front, rear, and size
             tlb_store.rear = (tlb_store.rear - 1 + TLB_ENTRIES) % TLB_ENTRIES;
             tlb_store.size--;
-            pthread_mutex_unlock(&tlbLock);
+            pthread_mutex_unlock(&lock);
             return; // Entry removed
         }
     }
-    pthread_mutex_unlock(&tlbLock);
+    pthread_mutex_unlock(&lock);
 }
 
 
