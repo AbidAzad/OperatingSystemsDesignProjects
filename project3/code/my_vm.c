@@ -171,9 +171,10 @@ int page_map(pde_t *pgdir, void *va, void *pa){
     
     pte_t map = (pde_t) pa;
     map >>= (int) offset;
-
-  if (pageTable[pgdir[outer]] == NULL) 
+     
+  if (pageTable[pgdir[outer]] == NULL) {
         pageTable[pgdir[outer]] = (pte_t *)malloc(sizeof(pte_t) * innerPage);
+  }
 
     
 
@@ -239,12 +240,15 @@ void *t_malloc(unsigned int num_bytes) {
 	
     pde_t outer = (*page) / 1024;
     pte_t inner = (*page) % 1024;
+    if(directEntry == 0xc)
+        directEntry = 0x0;
+
     pageDir[directEntry] = outer;
     directEntry = (directEntry + 1) % 1024;
 
     pte_t va = (outer << (int)(innerPage + offset)) | (inner << (int)offset);
     pte_t pa = (frame << (int)offset);
-
+    
     page_map(pageDir, (void*)va, (void*)pa);
     pthread_mutex_unlock(&lock);
     return (void *) va;
@@ -344,10 +348,11 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
             for (k = 0; k < size; k++) {
                 int address_a = (unsigned int)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
                 int address_b = (unsigned int)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
+
                 get_value( (void *)address_a, &a, sizeof(int));
                 get_value( (void *)address_b, &b, sizeof(int));
-                 printf("Values at the index: %d, %d, %d, %d, %d\n", 
-                     a, b, size, (i * size + k), (k * size + j));
+                 //printf("Values at the index: %d, %d, %d, %d, %d\n", 
+                    // a, b, size, (i * size + k), (k * size + j));
                 c += (a * b);
             }
             int address_c = (unsigned int)answer + ((i * size * sizeof(int))) + (j * sizeof(int));

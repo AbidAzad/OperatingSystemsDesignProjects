@@ -1,6 +1,6 @@
 #include "../my_vm.h"
 #include <time.h>
-#define num_threads 26
+#define num_threads 150
 
 void *pointers[num_threads];
 int ids[num_threads];
