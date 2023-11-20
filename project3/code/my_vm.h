@@ -9,11 +9,6 @@
 #include<pthread.h> 
 #include <math.h> 
 #include <string.h>
-//Assume the address space is 32 bits, so the max memory size is 4GB
-//Page size is 4KB
-
-//Add any important includes here which you may need
-
 
 #define PGSIZE 4096
 
