@@ -10,7 +10,7 @@
 #include <math.h> 
 #include <string.h>
 
-#define PGSIZE 2048
+#define PGSIZE 4096
 
 // Maximum size of virtual memory
 #define MAX_MEMSIZE 4ULL*1024*1024*1024
@@ -28,6 +28,7 @@ typedef unsigned long pde_t;
 
 //Structure to represents TLB
 struct tlb_entry {
+    void *ogVa;
     void *va;
     void *pa;
 };

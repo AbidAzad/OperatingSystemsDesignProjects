@@ -75,7 +75,7 @@ void set_physical_mem() {
 pthread_mutex_t tlbLock = PTHREAD_MUTEX_INITIALIZER;
 
 int
-add_TLB(void *va, void *pa)
+add_TLB(void *va, void *pa, void *ogVa)
 {
     pthread_mutex_lock(&tlbLock);
 
@@ -98,6 +98,7 @@ add_TLB(void *va, void *pa)
     // Add the new entry at the end
     tlb_store.entries[tlb_store.rear].va = va;
     tlb_store.entries[tlb_store.rear].pa = pa;
+    tlb_store.entries[tlb_store.rear].ogVa = ogVa;
     tlb_store.rear = (tlb_store.rear + 1) % TLB_ENTRIES;
     tlb_store.size++;
     pthread_mutex_unlock(&tlbLock);
@@ -167,7 +168,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     if (pageTable[pgdir[outer]] == NULL) {
         return NULL;
     }
-	add_TLB(test,  (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE));
+	add_TLB(test,  (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE), va);
     pthread_mutex_unlock(&translateLock);
 	return (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE);
 
@@ -211,7 +212,7 @@ int page_map(pde_t *pgdir, void *va, void *pa){
 * Function that gets the next available page
 */
 void *get_next_avail(int num_pages) {
-    pthread_mutex_lock(&pageMapLock);
+   pthread_mutex_lock(&pageMapLock);
    pte_t current_page = freePage;
    pte_t start_page = freePage;
 
@@ -338,7 +339,7 @@ void t_free(void *va, int size) {
 
     for (int i = 0; i < tlb_store.size; i++) {
         int index = (tlb_store.front + i) % TLB_ENTRIES;
-        if (tlb_store.entries[index].va == va) {
+        if (tlb_store.entries[index].ogVa == va) {
             for (int j = i; j < tlb_store.size - 1; j++) {
                 int current_index = (tlb_store.front + j) % TLB_ENTRIES;
                 int next_index = (tlb_store.front + j + 1) % TLB_ENTRIES;
