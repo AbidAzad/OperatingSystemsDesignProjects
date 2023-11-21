@@ -1,7 +1,7 @@
 // List all group member's name(s): Abid Azad(aa2177), Ghautham Sambabu(gs878) 
 // username of iLab: rlab
 
-#include "my_vm.h"
+#include "my_vm64.h"
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t secondLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t translateLock = PTHREAD_MUTEX_INITIALIZER;
