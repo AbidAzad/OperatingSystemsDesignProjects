@@ -78,17 +78,28 @@ int
 add_TLB(void *va, void *pa)
 {
     pthread_mutex_lock(&tlbLock);
+
+    // Check if the entry already exists, and update it
+    for (int i = 0; i < tlb_store.size; i++) {
+        int index = (tlb_store.front + i) % TLB_ENTRIES;
+        if (tlb_store.entries[index].va == va) {
+            tlb_store.entries[index].pa = pa;
+            pthread_mutex_unlock(&tlbLock);
+            return 0;
+        }
+    }
+
+    // If TLB is full, remove the oldest entry
     if (tlb_store.size == TLB_ENTRIES) {
         tlb_store.front = (tlb_store.front + 1) % TLB_ENTRIES;
         tlb_store.size--;
     }
 
+    // Add the new entry at the end
     tlb_store.entries[tlb_store.rear].va = va;
     tlb_store.entries[tlb_store.rear].pa = pa;
-    
     tlb_store.rear = (tlb_store.rear + 1) % TLB_ENTRIES;
     tlb_store.size++;
-    tlb_store.accesses++;
     pthread_mutex_unlock(&tlbLock);
     return 0;
 }
@@ -107,6 +118,7 @@ check_TLB(void *va) {
         int index = (tlb_store.front + i) % TLB_ENTRIES;
         if (tlb_store.entries[index].va == va) {
             pthread_mutex_unlock(&tlbLock);
+            tlb_store.accesses++;
             return tlb_store.entries[index].pa;
         }
     }
@@ -128,7 +140,6 @@ print_TLB_missrate()
     if (tlb_store.accesses > 0) {
         miss_rate = (double) tlb_store.misses / (double) tlb_store.accesses;
     }
-
     fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
 }
 
@@ -140,7 +151,8 @@ performs translation to return the physical address
 */
 pte_t *translate(pde_t *pgdir, void *va) {
     pthread_mutex_lock(&translateLock);
-    pte_t *translation = check_TLB(va);
+    void *test = (void*)((unsigned long) va >> (int)offset);
+    pte_t *translation = check_TLB(test);
     if(translation != NULL){
         pthread_mutex_unlock(&translateLock);
         return translation;
@@ -155,7 +167,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     if (pageTable[pgdir[outer]] == NULL) {
         return NULL;
     }
-	add_TLB(va,  (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE));
+	add_TLB(test,  (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE));
     pthread_mutex_unlock(&translateLock);
 	return (void *) ((pte_t)(physicalMemory) + pageTable[pgdir[outer]][inner]*PGSIZE);
 

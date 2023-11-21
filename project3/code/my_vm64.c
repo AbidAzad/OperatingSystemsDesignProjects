@@ -13,7 +13,7 @@ pte_t freePage = 0;
 pte_t directEntry = 0;
 unsigned char * physicalMemory = NULL;
 int numPhysPages; 
-int numVirtPages; 
+size_t numVirtPages; 
 int checkBits;
 unsigned char * physBitmap;
 unsigned char * virtBitmap; 
@@ -45,9 +45,9 @@ void set_physical_mem() {
 	offset = log2 (PGSIZE);
 	double va_bits = log2 (MAX_MEMSIZE);
 	int numBits = (va_bits - offset);
-    checkBits = numBits/2; 
-	outerPage = numBits/2;
-	innerPage = numBits/2;
+    checkBits = numBits/4; 
+	outerPage = numBits/4;
+	innerPage = 3*numBits/4;
     if(numBits%2 != 0)
 		innerPage++;    
 	pageDir = (pde_t *) malloc(sizeof(pde_t) * outerPage);
@@ -139,8 +139,8 @@ pte_t *translate(pde_t *pgdir, void *va) {
     }
     
 	pde_t address = (pde_t) va; 
-	pde_t outer = 0xFFFFFFFF; 
-	pte_t inner = 0xFFFFFFFF;
+	pde_t outer = 1ULL << 60 ; 
+	pte_t inner = 1ULL << 60 ;
 
     inner = performBitmask(inner, innerPage, offset, address);
     outer = performBitmask(outer, outerPage, innerPage + offset, address);
@@ -168,8 +168,8 @@ int page_map(pde_t *pgdir, void *va, void *pa){
 
     pthread_mutex_lock(&pageMapLock);
     pde_t address = (pde_t) va;
-    pde_t inner = performBitmask(0xFFFFFFFF, innerPage, offset, address);
-    pde_t outer = performBitmask(0xFFFFFFFF, outerPage, innerPage + offset, address);
+    pde_t inner = performBitmask(1ULL << 60, innerPage, offset, address);
+    pde_t outer = performBitmask(1ULL << 60, outerPage, innerPage + offset, address);
     
     pte_t map = (pde_t) pa;
     map >>= (int) offset;
@@ -272,8 +272,8 @@ void t_free(void *va, int size) {
         limit *= 2;
     }
 	pde_t address = (pde_t) va;
-    pde_t inner = performBitmask(0xFFFFFFFF, innerPage, offset, address);
-    pde_t outer = performBitmask(0xFFFFFFFF, outerPage, innerPage + offset, address);
+    pde_t inner = performBitmask(1ULL << 60, innerPage, offset, address);
+    pde_t outer = performBitmask(1ULL << 60, outerPage, innerPage + offset, address);
 	
 	pte_t page = (outer*limit) + inner;
 	directEntry--;
@@ -341,7 +341,7 @@ void get_value(void *va, void *val, int size) {
     unsigned int pages = (size / PGSIZE) + 1;
     for (int i = 0; i < pages; i++) {
        void* pa = translate(pageDir, va);
-       unsigned int address = (unsigned int)val + (i * PGSIZE);
+       uintptr_t address = (uintptr_t)val + (i * PGSIZE);
        size_t copy_size = (i == (pages - 1)) ? size % PGSIZE : PGSIZE;
        memcpy((void*)address, pa, copy_size);
        va += PGSIZE;
@@ -357,8 +357,8 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
         for(j = 0; j < size; j++) {
             unsigned int a, b, c = 0;
             for (k = 0; k < size; k++) {
-                int address_a = (unsigned int)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
-                int address_b = (unsigned int)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
+                int address_a = (uintptr_t)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
+                int address_b = (uintptr_t)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
 
                 get_value( (void *)address_a, &a, sizeof(int));
                 get_value( (void *)address_b, &b, sizeof(int));
@@ -366,7 +366,7 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
                     // a, b, size, (i * size + k), (k * size + j));
                 c += (a * b);
             }
-            int address_c = (unsigned int)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
+            int address_c = (uintptr_t)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
             // printf("This is the c: %d, address: %x!\n", c, address_c);
             put_value((void *)address_c, (void *)&c, sizeof(int));
         }
@@ -377,8 +377,8 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
 }
 unsigned long performBitmask(unsigned long page, double shift, double offset, pde_t address) { 
 	page <<= (int) offset;
-	page <<= (int) (32 - (innerPage + offset));
-	page >>= (int) (32 - (innerPage + offset));
+	page <<= (int) (64 - (innerPage + offset));
+	page >>= (int) (64 - (innerPage + offset));
 	page = page & address;
 	return page >>= (int) offset;
 } 

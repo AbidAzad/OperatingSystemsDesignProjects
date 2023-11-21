@@ -11,14 +11,14 @@
 #define PGSIZE 4096
 
 // Maximum size of virtual memory
-#define MAX_MEMSIZE (1ULL << 42)  // 4TB
-#define MEMSIZE (1ULL << 30)      // 1GB
+#define MAX_MEMSIZE 16ULL*1024ULL*1024ULL*1024ULL*1024ULL
+#define MEMSIZE 64ULL*1024*1024*1024
 
 // Represents a page table entry
-typedef uint64_t pte_t;
+typedef unsigned long long pte_t;
 
 // Represents a page directory entry
-typedef uint64_t pde_t;
+typedef unsigned long long pde_t;
 
 #define TLB_ENTRIES 512
 
