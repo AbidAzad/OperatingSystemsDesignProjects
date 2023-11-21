@@ -21,6 +21,14 @@ double offset;
 double outerPage; 
 double innerPage; 
 struct tlb tlb_store = { .size = 0, .front = 0, .rear = 0, .misses = 0, .accesses = 0 };
+struct allocation_info {
+    void *start_address;
+    int size;
+};
+
+// Maintain a list of allocated pages and their sizes in an attempt to reduce internal fragmentation.
+struct allocation_info allocated_pages[MAX_MEMSIZE / PGSIZE];
+int num_allocated_pages = 0;
 
 
 /*
@@ -221,16 +229,33 @@ void *get_next_avail(int num_pages) {
  Function responsible for allocating pages and used by the benchmark
 */
 void *t_malloc(unsigned int num_bytes) {
-
     pthread_mutex_lock(&lock);
-	if(physicalMemory == NULL) 
-		set_physical_mem();
-	
+    if(physicalMemory == NULL) 
+        set_physical_mem();
+    
+    // Check if combining small allocations into one page is possible
+    int combined_allocation = 0;
+    if (num_allocated_pages > 0) {
+        struct allocation_info last_allocation = allocated_pages[num_allocated_pages - 1];
+        if (last_allocation.size + num_bytes <= PGSIZE) {
+            num_bytes = PGSIZE - last_allocation.size;
+            combined_allocation = 1;
+        }
+    }
+
     pte_t * page = (pte_t *) get_next_avail((num_bytes / PGSIZE) + 1);
     if (page == NULL) {
         pthread_mutex_unlock(&lock);
         return NULL;
     }
+
+    // Update the allocation information
+    if (!combined_allocation) {
+        allocated_pages[num_allocated_pages].start_address = page;
+        allocated_pages[num_allocated_pages].size = num_bytes;
+        num_allocated_pages++;
+    }
+
     for (int i = 0; i < (num_bytes / PGSIZE) + 1; i++) {
         unsigned char virt_mask = 0x80 >> ((*page + i) % 8);
         virtBitmap[(*page + i) / 8] |= virt_mask;
@@ -240,7 +265,7 @@ void *t_malloc(unsigned int num_bytes) {
 
         frame = (frame + 1) % numPhysPages;
     }
-	
+
     int limit = 1;
     for (int i = 0; i < checkBits; i++) {
         limit *= 2;
@@ -265,22 +290,30 @@ void *t_malloc(unsigned int num_bytes) {
 Responsible for releasing one or more memory pages using virtual address (va)
 */
 void t_free(void *va, int size) {
-
-	pthread_mutex_lock(&lock);
+    pthread_mutex_lock(&lock);
     int limit = 1;
     for (int i = 0; i < checkBits; i++) {
         limit *= 2;
     }
-	pde_t address = (pde_t) va;
+    pde_t address = (pde_t) va;
     pde_t inner = performBitmask(0xFFFFFFFF, innerPage, offset, address);
     pde_t outer = performBitmask(0xFFFFFFFF, outerPage, innerPage + offset, address);
-	
-	pte_t page = (outer*limit) + inner;
-	directEntry--;
-	freePage -=  (size / PGSIZE) + 1;
-	frame -=  (size / PGSIZE) + 1;
-	
-	for(int i=0; i<(size / PGSIZE) + 1; i++) {
+    
+    pte_t page = (outer*limit) + inner;
+    directEntry--;
+    freePage -=  (size / PGSIZE) + 1;
+    frame -=  (size / PGSIZE) + 1;
+    
+    // Update the allocation information
+    for (int i = 0; i < num_allocated_pages; i++) {
+        if (allocated_pages[i].start_address == va) {
+            allocated_pages[i].start_address = NULL;
+            allocated_pages[i].size = 0;
+            break;
+        }
+    }
+
+    for(int i=0; i<(size / PGSIZE) + 1; i++) {
         unsigned char virt_mask = ~(0x80 >> ((page + i) % 8));
         virtBitmap[(page + i) / 8] &= virt_mask;
 
@@ -288,12 +321,11 @@ void t_free(void *va, int size) {
         physBitmap[(frame + i) / 8] &= phys_mask;
 
         frame = (frame + 1) % numPhysPages;
-	}
+    }
 
     for (int i = 0; i < tlb_store.size; i++) {
         int index = (tlb_store.front + i) % TLB_ENTRIES;
         if (tlb_store.entries[index].va == va) {
-
             for (int j = i; j < tlb_store.size - 1; j++) {
                 int current_index = (tlb_store.front + j) % TLB_ENTRIES;
                 int next_index = (tlb_store.front + j + 1) % TLB_ENTRIES;
@@ -308,7 +340,6 @@ void t_free(void *va, int size) {
     }
     pthread_mutex_unlock(&lock);
 }
-
 
 /* The function copies data pointed by "val" to physical
  * memory pages using virtual address (va)
