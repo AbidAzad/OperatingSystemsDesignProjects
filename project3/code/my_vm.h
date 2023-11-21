@@ -10,7 +10,7 @@
 #include <math.h> 
 #include <string.h>
 
-#define PGSIZE 4096
+#define PGSIZE 2048
 
 // Maximum size of virtual memory
 #define MAX_MEMSIZE 4ULL*1024*1024*1024

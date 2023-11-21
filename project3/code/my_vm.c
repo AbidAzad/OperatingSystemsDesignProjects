@@ -312,6 +312,7 @@ void t_free(void *va, int size) {
     pde_t outer = performBitmask(0xFFFFFFFF, outerPage, innerPage + offset, address);
     
     pte_t page = (outer*limit) + inner;
+    if(directEntry != 0)
     directEntry--;
     freePage -=  (size / PGSIZE) + 1;
     frame -=  (size / PGSIZE) + 1;
