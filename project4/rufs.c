@@ -70,10 +70,8 @@ int readi(uint16_t ino, struct inode *inode) {
 
     int block = superblock->i_start_blk + (ino / (BLOCK_SIZE / sizeof(struct inode)));
     int offset = ino % (BLOCK_SIZE / sizeof(struct inode));
-    struct inode *tempblock = (struct inode *)malloc(BLOCK_SIZE);
-    bio_read(block, (void *)tempblock);
-    *inode = tempblock[offset];
-    free(tempblock);
+    
+    bio_read(block, (void *)inode + offset * sizeof(struct inode));
 
     return 0;
 }
@@ -81,12 +79,8 @@ int readi(uint16_t ino, struct inode *inode) {
 int writei(uint16_t ino, struct inode *inode) {
 
     int block = superblock->i_start_blk + (ino / (BLOCK_SIZE / sizeof(struct inode)));
-    int offset = ino % (BLOCK_SIZE / sizeof(struct inode));
-    struct inode *temp = (struct inode *)malloc(BLOCK_SIZE);
-    bio_read(block, (void *)temp);
-    temp[offset] = *inode;
-    bio_write((const int)block, (const void *)temp);
-    free(temp);
+    bio_read(block, (void *)inode);
+    bio_write(block, (const void *)inode);
 
     return 0;
 }
@@ -413,32 +407,30 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 }
 
 static int rufs_rmdir(const char *path) {
-    char *directoryPath = strdup(path);
     char *base = strdup(path);
+    char *directoryPath = strdup(path);
     dirname(directoryPath);
     base = basename(base);
 
-    struct inode *target = malloc(sizeof(struct inode));
-    if (get_node_by_path(path, 0, target) != 0) return -ENOENT;
+    struct inode target;
+    if (get_node_by_path(path, 0, &target) != 0) return -ENOENT;
 
-    for (int i = 0; i < 16 && target->direct_ptr[i] != 0; i++) {
-        unset_bitmap(blockBitmap, target->direct_ptr[i] - superblock->d_start_blk);
-        target->direct_ptr[i] = 0;
+    for (int i = 0; i < 16 && target.direct_ptr[i] != 0; i++) {
+        unset_bitmap(blockBitmap, target.direct_ptr[i] - superblock->d_start_blk);
+        target.direct_ptr[i] = 0;
     }
     bio_write(superblock->d_bitmap_blk, blockBitmap);
 
-    target->valid = 0;
-    unset_bitmap(inodeBitmap, target->ino);
+    target.valid = 0;
+    unset_bitmap(inodeBitmap, target.ino);
     bio_write(superblock->i_bitmap_blk, inodeBitmap);
-    writei(target->ino, target);
-    free(target);
+    writei(target.ino, &target);
 
-    struct inode *parent = malloc(sizeof(struct inode));
-    if (get_node_by_path(directoryPath, 0, parent) != 0) return -ENOENT;
+    struct inode parent;
+    if (get_node_by_path(directoryPath, 0, &parent) != 0) return -ENOENT;
 
-    dir_remove(*parent, base, strlen(base));
+    dir_remove(parent, base, strlen(base));
 
-    free(parent);
     return 0;
 }
 
