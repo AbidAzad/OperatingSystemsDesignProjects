@@ -18,6 +18,11 @@
         "chrono": "c",
         "string_view": "c",
         "initializer_list": "c",
-        "cmath": "c"
+        "cmath": "c",
+        "block.h": "c",
+        "fuse.h": "c",
+        "typeindex": "c",
+        "typeinfo": "c",
+        "sstream": "c"
     }
 }
