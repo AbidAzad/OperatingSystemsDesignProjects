@@ -1,13 +1,13 @@
 /*
- *  Copyright (C) 2023 CS416 Rutgers CS
+ *  Copyright (C) 2020 CS416 Rutgers CS
  *	Tiny File System
- *	File:	rufs.c
+ *	File:	tfs.c
  *
  */
 
 #define FUSE_USE_VERSION 26
-#define	S_IFDIR 0x4000
-#define	S_IFREG	0x8000
+#define S_IFDIR 0x4000
+#define S_IFREG 0x8000
 #include <fuse.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -26,25 +26,27 @@
 char diskfile_path[PATH_MAX];
 
 // Declare your in-memory data structures here
-struct superblock * superblock ; 
-bitmap_t inodeBitmap, blockBitmap ; 
+struct superblock * superblock ; // superblock
+bitmap_t inodeBitmap ; // inode bitmap
+bitmap_t blockBitmap ; // data bitmap
 
 /* 
  * Get available inode number from bitmap
  */
 int get_avail_ino() {
     bio_read(superblock->i_bitmap_blk, inodeBitmap);
-    
-    for (int inodeNumber = 0; inodeNumber < MAX_INUM; inodeNumber++) {
-        if (get_bitmap(inodeBitmap, inodeNumber) == 0) {
-            set_bitmap(inodeBitmap, inodeNumber);
+
+    for (int i = 0; i < MAX_INUM; i++) {
+        if (get_bitmap(inodeBitmap, i) == 0) {
+            set_bitmap(inodeBitmap, i);
             bio_write(superblock->i_bitmap_blk, inodeBitmap);
-            return inodeNumber;
+            return i;
         }
     }
-    
+
     return -1;
 }
+
 
 /* 
  * Get available data block number from bitmap
@@ -52,11 +54,11 @@ int get_avail_ino() {
 int get_avail_blkno() {
     bio_read(superblock->d_bitmap_blk, blockBitmap);
 
-    for (int blockNumber = 0; blockNumber < MAX_DNUM; blockNumber++) {
-        if (get_bitmap(blockBitmap, blockNumber) == 0) {
-            set_bitmap(blockBitmap, blockNumber);
+    for (int i = 0; i < MAX_DNUM; i++) {
+        if (get_bitmap(blockBitmap, i) == 0) {
+            set_bitmap(blockBitmap, i);
             bio_write(superblock->d_bitmap_blk, blockBitmap);
-            return superblock->d_start_blk + blockNumber;
+            return superblock->d_start_blk + i;
         }
     }
 
@@ -67,20 +69,25 @@ int get_avail_blkno() {
  * inode operations
  */
 int readi(uint16_t ino, struct inode *inode) {
-
-    int block = superblock->i_start_blk + (ino / (BLOCK_SIZE / sizeof(struct inode)));
-    int offset = ino % (BLOCK_SIZE / sizeof(struct inode));
-    
-    bio_read(block, (void *)inode + offset * sizeof(struct inode));
+    int inodeBlock = superblock->i_start_blk + (ino / (BLOCK_SIZE / sizeof(struct inode)));
+    int inodeOffset = ino % (BLOCK_SIZE / sizeof(struct inode));
+    struct inode *blockBuffer = (struct inode *)malloc(BLOCK_SIZE);
+    bio_read(inodeBlock, (void *)blockBuffer);
+    *inode = blockBuffer[inodeOffset];
+    free(blockBuffer);
 
     return 0;
 }
 
-int writei(uint16_t ino, struct inode *inode) {
+int writei(uint16_t ino, const struct inode *inode) {
+    int inodeBlock = superblock->i_start_blk + (ino / (BLOCK_SIZE / sizeof(struct inode)));
+    int inodeOffset = ino % (BLOCK_SIZE / sizeof(struct inode));
 
-    int block = superblock->i_start_blk + (ino / (BLOCK_SIZE / sizeof(struct inode)));
-    bio_read(block, (void *)inode);
-    bio_write(block, (const void *)inode);
+    struct inode *blockBuffer = (struct inode *)malloc(BLOCK_SIZE);
+    bio_read(inodeBlock, (void *)blockBuffer);
+    blockBuffer[inodeOffset] = *inode;
+    bio_write(inodeBlock, (const void *)blockBuffer);
+    free(blockBuffer);
 
     return 0;
 }
@@ -90,150 +97,117 @@ int writei(uint16_t ino, struct inode *inode) {
  * directory operations
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
-    struct inode currentInode;
-    readi(ino, &currentInode);
+    struct inode *currentInode = (struct inode *)malloc(sizeof(struct inode));
+    readi(ino, currentInode);
 
-    struct dirent *currentDataBlock = (struct dirent *)malloc(BLOCK_SIZE);
-
-    for (int i = 0; i < 16 && currentInode.direct_ptr[i] != 0; i++) {
-        bio_read(currentInode.direct_ptr[i], currentDataBlock);
-        for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
-            if (currentDataBlock[j].valid && strcmp(currentDataBlock[j].name, fname) == 0) {
-                *dirent = currentDataBlock[j];
-                free(currentDataBlock);
-                return 0;
-            }
-        }
-    }
-
-    free(currentDataBlock);
-    return -1;
-}
-
-int find_entry(struct inode dir_inode, const char *fname, size_t name_len, struct dirent *found_entry) {
-    struct dirent *currentDataBlock = (struct dirent *)malloc(BLOCK_SIZE);
-
-    for (int i = 0; i < 16 && dir_inode.direct_ptr[i] && bio_read(dir_inode.direct_ptr[i], currentDataBlock); i++) {
-        struct dirent *entry = currentDataBlock;
-
-        for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
-            if (entry->valid && strcmp(entry->name, fname) == 0) {
-                memcpy(found_entry, entry, sizeof(struct dirent));
-                free(currentDataBlock);
-                return 0;
-            }
-            entry++;
-        }
-    }
-
-    free(currentDataBlock);
-    return -1;
-}
-
-void update_inode(struct inode *update) {
-    update->size += sizeof(struct dirent);
-    update->vstat.st_size += sizeof(struct dirent);
-    time(&update->vstat.st_mtime);
-
-    writei(update->ino, update);
-}
-
-int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
-    struct dirent *currentDataBlock = (struct dirent *)malloc(BLOCK_SIZE);
-
-    for (int i = 0; i < 16 && dir_inode.direct_ptr[i] && bio_read(dir_inode.direct_ptr[i], currentDataBlock); i++) {
-        for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
-            if (currentDataBlock[j].valid && strcmp(currentDataBlock[j].name, fname) == 0) {
-                free(currentDataBlock);
-                return -1;
-            }
-        }
-    }
-
-    struct dirent *directoryEntry;
+    struct dirent *dirEntry = (struct dirent *)malloc(BLOCK_SIZE * sizeof(struct dirent));
 
     for (int i = 0; i < 16; i++) {
-        if (!dir_inode.direct_ptr[i]) {
-            dir_inode.direct_ptr[i] = get_avail_blkno();
-            bio_write(dir_inode.direct_ptr[i], (struct inode *)malloc(BLOCK_SIZE));
-            dir_inode.vstat.st_blocks++;
-            if (i < 15) dir_inode.direct_ptr[i + 1] = 0;
+        if (currentInode->direct_ptr[i] == 0) {
+            return -1; // Not found, return early
         }
 
-        bio_read(dir_inode.direct_ptr[i], currentDataBlock);
-        directoryEntry = currentDataBlock;
+        bio_read(currentInode->direct_ptr[i], dirEntry);
 
         for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
-            if (!directoryEntry->valid) {
-                directoryEntry->ino = f_ino;
-                strncpy(directoryEntry->name, fname, name_len + 1);
-                directoryEntry->valid = 1;
-                break;
+            if (dirEntry->valid && strcmp(dirEntry->name, fname) == 0) {
+                *dirent = *dirEntry;
+                return 0; // Found
             }
-            directoryEntry++;
-        }
-
-        if (directoryEntry->valid) break;
-    }
-
-    struct inode update = dir_inode;
-    update_inode(&update);
-    bio_write(dir_inode.direct_ptr[0], currentDataBlock);
-
-    free(currentDataBlock);
-    return 0;
-}
-
-int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
-    struct dirent *currentDataBlock = (struct dirent *)malloc(BLOCK_SIZE);
-
-    for (int i = 0; i < 16 && dir_inode.direct_ptr[i] && bio_read(dir_inode.direct_ptr[i], currentDataBlock); i++) {
-        struct dirent *directoryEntry = currentDataBlock;
-
-        for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
-            if (directoryEntry->valid && strcmp(directoryEntry->name, fname) == 0) {
-                struct inode update = dir_inode;
-                update.size -= sizeof(struct dirent);
-                update.vstat.st_size -= sizeof(struct dirent);
-                directoryEntry->valid = 0;
-
-                update_inode(&update);
-                bio_write(dir_inode.direct_ptr[i], (const void *)currentDataBlock);
-
-                free(currentDataBlock);
-                return 0;
-            }
-            directoryEntry++;
+            dirEntry++;
         }
     }
 
-    free(currentDataBlock);
     return -1;
 }
+
+int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname,
+            size_t name_len) {
+  struct dirent *current_entry = (struct dirent *)malloc(BLOCK_SIZE * sizeof(struct dirent));
+
+  for (int i = 0; i < 16 && dir_inode.direct_ptr[i] != 0; i++) {
+    bio_read(dir_inode.direct_ptr[i], current_entry);
+
+    for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
+      if (current_entry[j].valid && strcmp(current_entry[j].name, fname) == 0) {
+        free(current_entry);
+        return -1; // name is already used
+      }
+    }
+  }
+
+  for (int i = 0; i < 16; i++) {
+    if (dir_inode.direct_ptr[i] == 0) {
+      dir_inode.direct_ptr[i] = get_avail_blkno();
+      bio_write(dir_inode.direct_ptr[i], (void *)&dir_inode);
+      dir_inode.vstat.st_blocks++;
+      if (i < 15) dir_inode.direct_ptr[i + 1] = 0;
+    }
+
+    bio_read(dir_inode.direct_ptr[i], current_entry);
+
+    for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
+      if (!current_entry[j].valid) {
+        current_entry[j].ino = f_ino;
+        strncpy(current_entry[j].name, fname, name_len + 1);
+        current_entry[j].valid = 1;
+        writei(dir_inode.ino, &dir_inode);
+        bio_write(dir_inode.direct_ptr[i], current_entry);
+        free(current_entry);
+        return 0;
+      }
+    }
+  }
+
+  free(current_entry);
+  return -1; // directory is full
+}
+
+
+int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
+    struct dirent *current_entry = (struct dirent *)malloc(BLOCK_SIZE);
+
+    for (int i = 0; i < 16 && dir_inode.direct_ptr[i] != 0; i++) {
+        bio_read(dir_inode.direct_ptr[i], current_entry);
+
+        for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
+            if (current_entry[j].valid && strcmp(current_entry[j].name, fname) == 0) {
+                struct inode *update_inode = (struct inode *)malloc(sizeof(struct inode));
+                *update_inode = dir_inode;
+                update_inode->size -= sizeof(struct dirent);
+                update_inode->vstat.st_size -= sizeof(struct dirent);
+                current_entry[j].valid = 0;
+                writei(update_inode->ino, update_inode);
+                bio_write(dir_inode.direct_ptr[i], (const void *)current_entry);
+                free(current_entry);
+                free(update_inode);
+                return 0;
+            }
+        }
+    }
+
+    free(current_entry);
+    return -1; // Entry not found
+}
+
 /* 
  * namei operation
  */
-int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
-    if (strcmp(path, "/") == 0) {
-        readi(0, inode);
-        return 0;
+int get_node_by_path(const char *path, uint16_t starting_ino, struct inode *result_inode) {
+    char *delimiter = "/";
+    char *current_token = strtok(path, delimiter);
+    struct dirent current_entry = { .ino = 0 };
+    if (strcmp(path, delimiter) == 0) { // root
+        current_token = NULL;
     }
-
-    char *path_copy = strdup(path);
-    char *parsedPath = strtok(path_copy, "/");
-    free(path_copy);
-
-    struct dirent directoryEntry;
-    directoryEntry.ino = 0;
-
-    while (parsedPath != NULL) {
-        if (dir_find(directoryEntry.ino, parsedPath, strlen(parsedPath), &directoryEntry) == -1) {
+    while (current_token != NULL) {
+        if (dir_find(current_entry.ino, current_token, strlen(current_token), &current_entry) == -1) {
             return -1;
         }
-        parsedPath = strtok(NULL, "/");
+        current_token = strtok(NULL, delimiter);
     }
+    readi(current_entry.ino, result_inode);
 
-    readi(directoryEntry.ino, inode);
     return 0;
 }
 
@@ -243,193 +217,208 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 int rufs_mkfs() {
     dev_init(diskfile_path);
 
-    struct superblock *superblock = (struct superblock *)malloc(BLOCK_SIZE);
-    *superblock = (struct superblock){
-        .magic_num = MAGIC_NUM,
-        .max_inum = MAX_INUM,
-        .max_dnum = MAX_DNUM,
-        .i_bitmap_blk = 1,
-        .d_bitmap_blk = 2,
-        .i_start_blk = 3,
-        .d_start_blk = 3 + ((sizeof(struct inode) * MAX_INUM) / BLOCK_SIZE),
-    };
+    // Write superblock information
+    superblock = malloc(BLOCK_SIZE);
+    *superblock = (struct superblock){.magic_num = MAGIC_NUM, .max_inum = MAX_INUM, .max_dnum = MAX_DNUM,
+                                     .i_bitmap_blk = 1, .d_bitmap_blk = 2, .i_start_blk = 3,
+                                     .d_start_blk = 3 + (sizeof(struct inode) * MAX_INUM) / BLOCK_SIZE};
     bio_write(0, superblock);
-    free(superblock);
 
-    bitmap_t inodeBitmap = (bitmap_t)malloc(BLOCK_SIZE);
-    bitmap_t blockBitmap = (bitmap_t)malloc(BLOCK_SIZE);
+    // Initialize inode and data block bitmaps
+    inodeBitmap = malloc(BLOCK_SIZE);
+    blockBitmap = malloc(BLOCK_SIZE);
     set_bitmap(inodeBitmap, 0);
     bio_write(superblock->i_bitmap_blk, inodeBitmap);
     set_bitmap(blockBitmap, 0);
     bio_write(superblock->d_bitmap_blk, blockBitmap);
 
-    struct inode root;
-    bio_read(superblock->i_start_blk, &root);
-    root = (struct inode){
-        .ino = 0,
-        .valid = 1,
-        .link = 0,
-        .indirect_ptr = {0},
-        .direct_ptr = {superblock->d_start_blk, 0},
-        .type = 1,
-        .vstat = {
-            .st_mode = S_IFDIR | 0755,
-            .st_nlink = 2,
-            .st_blocks = 1,
-            .st_blksize = BLOCK_SIZE,
-        },
-    };
-    time(&root.vstat.st_mtime);
-    bio_write(superblock->i_start_blk, &root);
+    // Update inode for root directory
+    struct inode *rootNode = malloc(BLOCK_SIZE);
+    *rootNode = (struct inode){.ino = 0, .valid = 1, .link = 0, .indirect_ptr = {0},
+                               .direct_ptr = {superblock->d_start_blk, 0}, .type = 1,
+                               .vstat = {.st_mode = S_IFDIR | 0755, .st_nlink = 2,
+                                         .st_blocks = 1, .st_blksize = BLOCK_SIZE}};
+    time(&rootNode->vstat.st_mtime);
+    bio_write(superblock->i_start_blk, rootNode);
+    free(rootNode);
 
-    struct dirent rootDirectory[2];
-    rootDirectory[0] = (struct dirent){.ino = 0, .valid = 1, .name = "."};
-    rootDirectory[1] = (struct dirent){.ino = 0, .valid = 1, .name = ".."};
-    bio_write(superblock->d_start_blk, rootDirectory);
-
-    free(inodeBitmap);
-    free(blockBitmap);
+    // Update root directory entries
+    struct dirent *rootDir = malloc(BLOCK_SIZE);
+    *rootDir = (struct dirent){.ino = 0, .valid = 1};
+    strncpy(rootDir->name, ".", 2);
+    struct dirent *parent = rootDir + 1;
+    *parent = (struct dirent){.ino = 0, .valid = 1};
+    strncpy(parent->name, "..", 3);
+    bio_write(superblock->d_start_blk, rootDir);
+    free(rootDir);
 
     return 0;
 }
-
 
 
 /* 
  * FUSE file operations
  */
 static void *rufs_init(struct fuse_conn_info *conn) {
-    if (dev_open(diskfile_path) == -1 ? rufs_mkfs() : 0) return NULL;
-    superblock = malloc(BLOCK_SIZE); bio_read(0, superblock);
-    inodeBitmap = malloc(BLOCK_SIZE); bio_read(superblock->i_bitmap_blk, inodeBitmap);
-    blockBitmap = malloc(BLOCK_SIZE); bio_read(superblock->d_bitmap_blk, blockBitmap);
+    if (dev_open(diskfile_path) == -1) {
+        rufs_mkfs();
+        return NULL;
+    }
+
+    superblock = malloc(BLOCK_SIZE);
+    inodeBitmap = malloc(BLOCK_SIZE);
+    blockBitmap = malloc(BLOCK_SIZE);
+
+    bio_read(0, superblock);
+    bio_read(superblock->i_bitmap_blk, inodeBitmap);
+    bio_read(superblock->d_bitmap_blk, blockBitmap);
+
     return NULL;
 }
 
 static void rufs_destroy(void *userdata) {
-    free(superblock); free(inodeBitmap); free(blockBitmap);
-    dev_close();
+	free(superblock) ;
+	free(inodeBitmap) ;
+	free(blockBitmap) ;
+	dev_close() ;
+
 }
 
-static int rufs_getattr(const char *path, struct stat *stbuf) {
-    struct inode *foundInode = malloc(sizeof(struct inode));
-    if (get_node_by_path(path, 0, foundInode) != 0) return -ENOENT;
-    *stbuf = foundInode->vstat;
-    free(foundInode);
+static int rufs_getattr(const char *path, struct stat *attr) {
+    struct inode node;
+
+    if (get_node_by_path(path, 0, &node) != 0) {
+        return -ENOENT; 
+    }
+
+    *attr = node.vstat;
+
     return 0;
 }
-
-static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
-    struct inode *foundInode = malloc(sizeof(struct inode));
-    if (get_node_by_path(path, 0, foundInode) == 0 && foundInode->valid) {
-        free(foundInode);
+static int rufs_opendir(const char *path, struct fuse_file_info *file_info) {
+    struct inode *node = (struct inode *)malloc(sizeof(struct inode));
+    
+    if (get_node_by_path(path, 0, node) == 0 && node->valid) {
+        free(node);
         return 0;
     }
-    free(foundInode);
+    
+    free(node);
     return -1;
 }
 
-static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-    struct inode *foundInode = malloc(sizeof(struct inode));
-    if (get_node_by_path(path, 0, foundInode) != 0) return -ENOENT;
-
-    for (int i = 0; i < 16 && foundInode->direct_ptr[i] != 0; i++) {
-        struct dirent *directoryEntry = malloc(BLOCK_SIZE);
-        bio_read(foundInode->direct_ptr[i], directoryEntry);
-        for (int j = 0; j < BLOCK_SIZE / sizeof(struct dirent); j++) {
-            if (directoryEntry->valid == 1) {
-                struct inode *k = malloc(sizeof(struct inode));
-                readi(directoryEntry->ino, k);
-                filler(buffer, directoryEntry->name, &k->vstat, 0);
-                free(k);
+static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *file_info) {
+    struct inode *node = (struct inode *)malloc(sizeof(struct inode));
+    
+    if (get_node_by_path(path, 0, node) != 0) {
+        free(node);
+        return -ENOENT; 
+    } 
+    
+    for (int i = 0; i < 16 && node->direct_ptr[i] != 0; i++) {
+        struct dirent *entry = (struct dirent *)malloc(BLOCK_SIZE);
+        bio_read(node->direct_ptr[i], entry);
+        
+        for (int j = 0; j < (BLOCK_SIZE / sizeof(struct dirent)); j++) {
+            if (entry->valid == 1) {
+                struct inode *entry_node = (struct inode *)malloc(sizeof(struct inode));
+                readi(entry->ino, entry_node);
+                filler(buffer, entry->name, &entry_node->vstat, 0);
+                free(entry_node);
             }
-            directoryEntry++;
+            entry++;
         }
-        free(directoryEntry);
+        free(entry);
     }
 
-    free(foundInode);
+    free(node);
     return 0;
 }
 
-static int create_update_inode(const char *path, mode_t mode, int type) {
-    char *directoryPath = strdup(path);
-    char *base = strdup(path);
-    dirname(directoryPath);
-    base = basename(base);
-
-    struct inode *parent = malloc(sizeof(struct inode));
-    if (get_node_by_path(directoryPath, 0, parent) != 0) return -ENOENT;
-
-    int avail = get_avail_ino();
-
-    dir_add(*parent, avail, base, strlen(base));
-
-    struct inode *update = malloc(sizeof(struct inode));
-    update->valid = 1;
-    update->ino = avail;
-    update->link = 0;
-    update->direct_ptr[0] = get_avail_blkno();
-    update->direct_ptr[1] = 0;
-    update->indirect_ptr[0] = 0;
-    update->type = type;
-    update->size = (type == 0) ? 0 : sizeof(struct dirent) * 2;
-
-    struct stat *ustat = malloc(sizeof(struct stat));
-    *ustat = (struct stat){
-        .st_mode = (type == 0) ? S_IFREG | 0666 : S_IFDIR | 0755,
-        .st_nlink = 1,
-        .st_ino = update->ino,
-        .st_size = update->size,
-        .st_blocks = 1
-    };
-    time(&ustat->st_mtime);
-    update->vstat = *ustat;
-
-    writei(avail, update);
-
-    if (type == 1) {
-        struct dirent *rootDir = malloc(BLOCK_SIZE);
-        *rootDir = (struct dirent){.ino = avail, .valid = 1, .name = "."};
-        struct dirent *parent = rootDir + 1;
-        *parent = (struct dirent){.ino = parent->ino, .valid = 1, .name = ".."};
-        bio_write(update->direct_ptr[0], rootDir);
-        free(rootDir);
-    }
-
-    free(ustat);
-    free(update);
-
-    return 0;
-}
 static int rufs_mkdir(const char *path, mode_t mode) {
-    return create_update_inode(path, mode, 1);
+    char *parentPath = strdup(path);
+    char *dirName = strdup(basename(parentPath));
+    dirname(parentPath);
+
+    struct inode parentInode;
+    if (get_node_by_path(parentPath, 0, &parentInode) != 0) {
+        free(parentPath);
+        free(dirName);
+        return -ENOENT; // “No such file or directory.”
+    }
+
+    int newInodeNumber = get_avail_ino();
+
+    dir_add(parentInode, newInodeNumber, dirName, strlen(dirName));
+
+    struct inode newDirInode = {
+        .valid = 1,
+        .ino = newInodeNumber,
+        .link = 0,
+        .direct_ptr = {get_avail_blkno(), 0},
+        .indirect_ptr = {0},
+        .type = 1,
+        .size = sizeof(struct dirent) * 2, // Unix convention
+    };
+
+    struct stat newDirStat = {
+        .st_mode = S_IFDIR | 0755, // Directory
+        .st_nlink = 1,
+        .st_ino = newDirInode.ino,
+        .st_blocks = 1,
+        .st_blksize = BLOCK_SIZE,
+        .st_size = newDirInode.size,
+    };
+
+    newDirInode.vstat = newDirStat;
+
+    writei(newInodeNumber, &newDirInode);
+
+    struct dirent selfDir = {.ino = newInodeNumber, .valid = 1, .name = "."};
+    struct dirent parentDir = {.ino = parentInode.ino, .valid = 1, .name = ".."};
+
+    bio_write(newDirInode.direct_ptr[0], &selfDir);
+    bio_write(newDirInode.direct_ptr[0], &parentDir);
+
+    free(parentPath);
+    free(dirName);
+
+    return 0;
 }
 
 static int rufs_rmdir(const char *path) {
-    char *base = strdup(path);
-    char *directoryPath = strdup(path);
-    dirname(directoryPath);
-    base = basename(base);
+    char *parentPath = strdup(path);
+    char *dirName = strdup(basename(parentPath));
+    dirname(parentPath);
 
-    struct inode target;
-    if (get_node_by_path(path, 0, &target) != 0) return -ENOENT;
-
-    for (int i = 0; i < 16 && target.direct_ptr[i] != 0; i++) {
-        unset_bitmap(blockBitmap, target.direct_ptr[i] - superblock->d_start_blk);
-        target.direct_ptr[i] = 0;
+    struct inode targetInode;
+    if (get_node_by_path(path, 0, &targetInode) != 0) {
+        free(parentPath);
+        free(dirName);
+        return -ENOENT; // “No such file or directory.”
     }
+
+    for (int i = 0; i < 16 && targetInode.direct_ptr[i] != 0; i++) {
+        unset_bitmap(blockBitmap, targetInode.direct_ptr[i] - superblock->d_start_blk);
+        targetInode.direct_ptr[i] = 0;
+    }
+
     bio_write(superblock->d_bitmap_blk, blockBitmap);
 
-    target.valid = 0;
-    unset_bitmap(inodeBitmap, target.ino);
+    targetInode.valid = 0;
+    unset_bitmap(inodeBitmap, targetInode.ino);
     bio_write(superblock->i_bitmap_blk, inodeBitmap);
-    writei(target.ino, &target);
+    writei(targetInode.ino, &targetInode);
 
-    struct inode parent;
-    if (get_node_by_path(directoryPath, 0, &parent) != 0) return -ENOENT;
+    free(parentPath);
+    free(dirName);
 
-    dir_remove(parent, base, strlen(base));
+    struct inode parentInode;
+    if (get_node_by_path(parentPath, 0, &parentInode) != 0) {
+        return -ENOENT; // “No such file or directory.”
+    }
+
+    dir_remove(parentInode, dirName, strlen(dirName));
 
     return 0;
 }
@@ -441,136 +430,245 @@ static int rufs_releasedir(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
-    return create_update_inode(path, mode, 0);
-}
-static int rufs_open(const char *path, struct fuse_file_info *fi) {
+    char *parentPath = strdup(path);
+    char *fileName = strdup(basename(parentPath));
+    dirname(parentPath);
 
-	struct inode *foundInode = malloc(sizeof(struct inode));
-	if (get_node_by_path(path, 0, foundInode) == 0 && foundInode->valid) {
-		free(foundInode);
-		return 0;
-	}
-	free(foundInode);
-	return -1;
+    struct inode parentInode;
+    if (get_node_by_path(parentPath, 0, &parentInode) != 0) {
+        free(parentPath);
+        free(fileName);
+        return -ENOENT; // “No such file or directory.”
+    }
+
+    int newInodeNumber = get_avail_ino();
+
+    dir_add(parentInode, newInodeNumber, fileName, strlen(fileName));
+
+    struct inode newFileInode = {
+        .valid = 1,
+        .ino = newInodeNumber,
+        .link = 0,
+        .direct_ptr = {get_avail_blkno(), 0},
+        .indirect_ptr = {0},
+        .type = 0,
+        .size = 0,
+    };
+
+    struct stat newFileStat = {
+        .st_mode = S_IFREG | 0666, // File
+        .st_nlink = 1,
+        .st_ino = newFileInode.ino,
+        .st_size = newFileInode.size,
+        .st_blocks = 1,
+    };
+
+    time(&newFileStat.st_mtime);
+    newFileInode.vstat = newFileStat;
+
+    writei(newInodeNumber, &newFileInode);
+
+    free(parentPath);
+    free(fileName);
+
+    return 0;
+}
+
+static int rufs_open(const char *path, struct fuse_file_info *fi) {
+    struct inode *node = (struct inode *)malloc(sizeof(struct inode));
+
+    if (get_node_by_path(path, 0, node) == 0 && node->valid) {
+        free(node);
+        return 0;
+    }
+
+    free(node);
+    return -1;
 }
 
 static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-    struct inode *foundInode = (struct inode *)malloc(sizeof(struct inode));
-    if (get_node_by_path(path, 0, foundInode) != 0)
-        return -ENOENT;  
+    struct inode *node = (struct inode *)malloc(sizeof(struct inode));
 
-    int bytesRead = 0;
-    int fileSize = size + offset;
-
-    while (offset < fileSize && bytesRead < (int)size) {
-        int blk = offset / BLOCK_SIZE;
-        int off = (blk > 15) ? ((blk - 16) % (BLOCK_SIZE / sizeof(int))) : 0;
-        blk = (blk > 15) ? ((blk - 16) / (BLOCK_SIZE / sizeof(int))) : blk;
-
-        char *b = (char *)malloc(BLOCK_SIZE);
-        bio_read((blk > 15) ? *((int *)(b + off)) : foundInode->direct_ptr[blk], b);
-
-        int j = 0;
-        while (offset < fileSize && j < BLOCK_SIZE && bytesRead < (int)size) {
-            *buffer++ = b[j++];
-            offset++;
-            bytesRead++;
-        }
-
-        free(b);
+    if (get_node_by_path(path, 0, node) != 0) {
+        free(node);
+        return -ENOENT; // “No such file or directory.”
     }
 
+    int bytesRead = 0;
+
+    for (int i = 0; i < size && offset < node->size; i++, offset++) {
+        int blk = offset / BLOCK_SIZE;
+        int off;
+
+        char blockBuffer[BLOCK_SIZE];
+        if (blk > 15) { // Large file support
+            off = (blk - 16) % (BLOCK_SIZE / sizeof(int));
+            blk = (blk - 16) / (BLOCK_SIZE / sizeof(int));
+            bio_read(node->indirect_ptr[blk], blockBuffer);
+            int *blockAddr = (int *)(blockBuffer + (off * sizeof(int)));
+            bio_read(*blockAddr, blockBuffer);
+        } else {
+            bio_read(node->direct_ptr[blk], blockBuffer);
+        }
+
+        buffer[i] = blockBuffer[offset % BLOCK_SIZE];
+        bytesRead++;
+    }
+
+    free(node);
     return bytesRead;
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-    struct inode *foundInode = (struct inode *)malloc(sizeof(struct inode));
-    if (get_node_by_path(path, 0, foundInode) != 0)
+    struct inode *node = (struct inode *)malloc(sizeof(struct inode));
+    
+    if (get_node_by_path(path, 0, node) != 0) {
+        free(node);
         return -ENOENT;
+    }
 
     char *blockBuffer = (char *)malloc(BLOCK_SIZE);
     int bytesWritten = 0;
 
-    for (int i = offset; i < offset + size; i++) {
+    for (int i = offset; i < (offset + size); i++) {
         int blk = i / BLOCK_SIZE;
-        int *indirectPtr = (blk > 15) ? &foundInode->indirect_ptr[blk - 16] : &foundInode->direct_ptr[blk];
         int w = 0;
 
-        if (*indirectPtr == 0) {
-            *indirectPtr = get_avail_blkno();
-            if (blk < (blk > 15 ? 7 : 15))
-                indirectPtr[1] = 0;
+        if (blk > 15) { 
+            int off = (blk - 16) % (BLOCK_SIZE / sizeof(int));
+            blk = (blk - 16) / (BLOCK_SIZE / sizeof(int));
 
-            struct inode *newBlock = (struct inode *)malloc(BLOCK_SIZE);
-            bio_write(*indirectPtr, newBlock);
-            free(newBlock);
-            foundInode->vstat.st_blocks++;
+            if (node->indirect_ptr[blk] == 0) {
+                node->indirect_ptr[blk] = get_avail_blkno();
+                if (blk < 7) {
+                    node->indirect_ptr[blk + 1] = 0;
+                }
+
+                struct inode *newBlock = (struct inode *)malloc(BLOCK_SIZE);
+                bio_write(node->indirect_ptr[blk], newBlock);
+                free(newBlock);
+            }
+
+            bio_read(node->indirect_ptr[blk], blockBuffer);
+            blockBuffer = blockBuffer + (off * sizeof(int));
+            int temp = *(int *)blockBuffer;
+
+            if (temp == 0) {
+                *(int *)blockBuffer = get_avail_blkno();
+                temp = *(int *)blockBuffer;
+                node->vstat.st_blocks++;
+            }
+
+            blockBuffer = blockBuffer - (off * sizeof(int));
+            bio_write(node->indirect_ptr[blk], blockBuffer);
+            bio_read(temp, blockBuffer);
+            w = temp;
+        } else {
+            if (node->direct_ptr[blk] == 0) {
+                node->direct_ptr[blk] = get_avail_blkno();
+                if (blk < 15) {
+                    node->direct_ptr[blk + 1] = 0;
+                }
+
+                struct inode *newBlock = (struct inode *)malloc(BLOCK_SIZE);
+                bio_write(node->direct_ptr[blk], newBlock);
+                node->vstat.st_blocks++;
+                free(newBlock);
+            }
+
+            bio_read(node->direct_ptr[blk], blockBuffer);
+            w = node->direct_ptr[blk];
         }
 
-        bio_read(*indirectPtr, blockBuffer);
-        w = *((int *)(blockBuffer + ((blk > 15) ? (blk - 16) % (BLOCK_SIZE / sizeof(int)) : 0)));
+        char *a = blockBuffer;
+        int j = 0;
 
-        if (w == 0) {
-            *((int *)(blockBuffer + ((blk > 15) ? (blk - 16) % (BLOCK_SIZE / sizeof(int)) : 0))) = get_avail_blkno();
-            w = *((int *)(blockBuffer + ((blk > 15) ? (blk - 16) % (BLOCK_SIZE / sizeof(int)) : 0)));
-            foundInode->vstat.st_blocks++;
-        }
-
-        for (int j = 0; i < offset + size && j < BLOCK_SIZE; i++, j++) {
-            blockBuffer[j] = *buffer;
-            foundInode->size++;
-            foundInode->vstat.st_size++;
+        for (; i < (offset + size); i++) {
+            *blockBuffer = *buffer;
+            node->size++;
+            node->vstat.st_size++;
+            blockBuffer++;
+            j++;
             buffer++;
             bytesWritten++;
-            time(&foundInode->vstat.st_mtime);
+            time(&node->vstat.st_mtime);
+
+            if (j >= BLOCK_SIZE) {
+                break;
+            }
         }
 
-        bio_write(w, blockBuffer);
+        bio_write(w, a);
+        blockBuffer = a;
     }
 
-    writei(foundInode->ino, foundInode);
+    writei(node->ino, node);
+
+    free(node);
     free(blockBuffer);
-    free(foundInode);
     return bytesWritten;
 }
 
 static int rufs_unlink(const char *path) {
-    char *directoryPath = strdup(path);
-    char *base = basename(strdup(path));
+    char *parentPath = strdup(path);
+    char *fileName = strdup(basename(parentPath));
+    dirname(parentPath);
 
-    struct inode *target = malloc(sizeof(struct inode));
-    if (get_node_by_path(path, 0, target) != 0) return -ENOENT;
-
-    for (int i = 0; i < 8 && target->indirect_ptr[i]; i++) {
-        unset_bitmap(blockBitmap, target->indirect_ptr[i] - superblock->d_start_blk);
-        target->indirect_ptr[i] = 0;
-
-        int *a = malloc(BLOCK_SIZE);
-        bio_read(target->indirect_ptr[i], a);
-
-        for (int j = 0; j < BLOCK_SIZE / sizeof(int) && *a == 1; j++) {
-            unset_bitmap(blockBitmap, *a - superblock->d_start_blk);
-            a++;
-        }
+    struct inode targetInode;
+    if (get_node_by_path(path, 0, &targetInode) != 0) {
+        free(parentPath);
+        free(fileName);
+        return -ENOENT; // “No such file or directory.”
     }
 
-    for (int i = 0; i < 16 && target->direct_ptr[i]; i++) {
-        unset_bitmap(blockBitmap, target->direct_ptr[i] - superblock->d_start_blk);
-        target->direct_ptr[i] = 0;
+    for (int i = 0; i < 8; i++) { // Large file support
+        if (targetInode.indirect_ptr[i] == 0) {
+            break;
+        }
+
+        unset_bitmap(blockBitmap, targetInode.indirect_ptr[i] - superblock->d_start_blk);
+        targetInode.indirect_ptr[i] = 0;
+
+        int *blockPtr = (int *)malloc(BLOCK_SIZE);
+        bio_read(targetInode.indirect_ptr[i], blockPtr);
+
+        for (int j = 0; j < (BLOCK_SIZE / sizeof(int)); j++) {
+            if (*blockPtr == 1) {
+                unset_bitmap(blockBitmap, *blockPtr - superblock->d_start_blk);
+            } else {
+                break;
+            }
+            blockPtr++;
+        }
+
+        free(blockPtr);
+    }
+
+    for (int i = 0; i < 16; i++) {
+        if (targetInode.direct_ptr[i] == 0) {
+            break;
+        }
+
+        unset_bitmap(blockBitmap, targetInode.direct_ptr[i] - superblock->d_start_blk);
+        targetInode.direct_ptr[i] = 0;
     }
 
     bio_write(superblock->d_bitmap_blk, blockBitmap);
 
-    target->valid = 0;
-    unset_bitmap(inodeBitmap, target->ino);
+    targetInode.valid = 0;
+    unset_bitmap(inodeBitmap, targetInode.ino);
     bio_write(superblock->i_bitmap_blk, inodeBitmap);
-    writei(target->ino, target);
-    free(target);
+    writei(targetInode.ino, &targetInode);
 
-    struct inode *parent = malloc(sizeof(struct inode));
-    if (get_node_by_path(directoryPath, 0, parent) != 0) return -ENOENT;
+    free(parentPath);
+    free(fileName);
 
-    dir_remove(*parent, base, strlen(base));
+    struct inode parentInode;
+    if (get_node_by_path(parentPath, 0, &parentInode) != 0) {
+        return -ENOENT; // “No such file or directory.”
+    }
+
+    dir_remove(parentInode, fileName, strlen(fileName));
 
     return 0;
 }
